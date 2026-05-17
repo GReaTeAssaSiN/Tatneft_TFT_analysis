@@ -65,7 +65,9 @@ FinalWorkDashboard/
 │   ├── train.py            — обучение TFT → model.ckpt
 │   └── predict.py          — инференс → predictions.csv + metrics.csv
 ├── dashboard/
-│   └── eda_dashboard.py    — интерактивный EDA дашборд (6 вкладок)
+│   ├── eda_dashboard.py         — интерактивный EDA дашборд (6 вкладок)
+│   ├── forecast_dashboard.py    — дашборд прогнозов TFT (5 вкладок)
+│   └── tft_interpretation.py   — интерпретация TFT: важность переменных, внимание
 ├── utils/
 │   ├── data_utils.py       — все константы проекта + утилиты
 │   └── torch_compat.py     — патч torch.load для PyTorch 2.6
@@ -96,10 +98,16 @@ python tft/train.py                  # → tft/model.ckpt
 # 4. Инференс (декабрь 2023)
 python tft/predict.py                # → data/predictions.csv + data/metrics.csv
 
-# 5. Дашборды
+# 5. EDA дашборд
 streamlit run dashboard/eda_dashboard.py
 
-# 6. Мониторинг обучения (в отдельном терминале)
+# 6. Дашборд прогнозов TFT (требует predictions.csv + metrics.csv)
+streamlit run dashboard/forecast_dashboard.py
+
+# 7. Интерпретация TFT (требует tft/model.ckpt)
+streamlit run dashboard/tft_interpretation.py
+
+# 8. Мониторинг обучения (в отдельном терминале)
 tensorboard --logdir tft/logs
 ```
 
@@ -129,6 +137,20 @@ tensorboard --logdir tft/logs
 | Акции и реклама | Эффект акций, каналы рекламы, праздники |
 | Временные паттерны | Сезонность, час суток, день недели |
 | Статистика | Распределения целевых (до/после log1p), корреляции, выбросы |
+
+---
+
+## Дашборд прогнозов TFT
+
+5 вкладок аналитики на основе результатов модели:
+
+| Вкладка | Содержимое |
+|---|---|
+| Прогноз | Прогноз vs факт за декабрь 2023, метрики MAE/RMSE/MAPE, доверительный интервал q10–q90 |
+| Качество модели | Scatter прогноз vs факт, гистограмма ошибок, тепловая карта MAPE по станциям |
+| Факторный анализ | Корреляция факторов с продажами, эффект акций/рекламы, распределение по часам |
+| Интерпретация TFT | Важность переменных (VSN-веса), временное внимание, интерпретация архитектуры |
+| Сценарий & Рекомендации | What-if анализ с настройкой акций, рекламы и цены; рекомендации по каждой АЗС |
 
 ---
 

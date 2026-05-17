@@ -84,7 +84,9 @@ FinalWorkDashboard/
 │   └── logs/                   — TensorBoard логи (tensorboard --logdir tft/logs)
 │
 ├── dashboard/                  — Streamlit дашборды
-│   └── eda_dashboard.py        — интерактивный EDA дашборд (6 вкладок)
+│   ├── eda_dashboard.py        — интерактивный EDA дашборд (6 вкладок)
+│   ├── forecast_dashboard.py   — дашборд прогнозов TFT (5 вкладок)
+│   └── tft_interpretation.py  — интерпретация TFT: важность переменных, внимание
 │
 ├── utils/                      — общие утилиты проекта
 │   ├── __init__.py
@@ -125,6 +127,12 @@ python tft/train.py                # → tft/model.ckpt (авто-резюм с 
 
 # EDA дашборд
 streamlit run dashboard/eda_dashboard.py
+
+# Дашборд прогнозов TFT (требует data/predictions.csv + data/metrics.csv)
+streamlit run dashboard/forecast_dashboard.py
+
+# Интерпретация TFT (требует tft/model.ckpt)
+streamlit run dashboard/tft_interpretation.py
 
 # Мониторинг обучения (в отдельном терминале)
 tensorboard --logdir tft/logs
