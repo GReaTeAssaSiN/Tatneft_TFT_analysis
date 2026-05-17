@@ -251,7 +251,7 @@ with tab1:
             num_cols = [c for c in df_plot.columns if c not in ("station_id", "timestamp", "horizon_h")]
             df_plot = df_plot.groupby("timestamp")[num_cols].mean().reset_index()
 
-        st.plotly_chart(forecast_chart(df_plot, sel_target), use_container_width=True)
+        st.plotly_chart(forecast_chart(df_plot, sel_target), width='stretch')
 
         # Разбивка по неделям
         st.subheader("Среднесуточные значения по декабрю")
@@ -263,7 +263,7 @@ with tab1:
             agg[act_c] = "mean"
         daily = df_day.groupby("date").agg(agg).reset_index()
         daily.columns = ["Дата", "Прогноз"] + (["Факт"] if act_c in df_day.columns else [])
-        st.dataframe(daily.round(2), use_container_width=True, height=280)
+        st.dataframe(daily.round(2), width='stretch', height=280)
     else:
         st.info("Нет данных для выбранных фильтров.")
 
@@ -287,7 +287,7 @@ with tab2:
         disp[["station_id", "target_label", "MAE", "RMSE", "MAPE_%", "n"]]
         .rename(columns={"target_label": "Переменная", "station_id": "Станция"})
         .round(3),
-        use_container_width=True,
+        width='stretch',
         height=320,
     )
 
@@ -308,7 +308,7 @@ with tab2:
             height=380,
         )
         fig_bar.update_layout(coloraxis_showscale=False, margin=dict(t=20, b=20))
-        st.plotly_chart(fig_bar, use_container_width=True)
+        st.plotly_chart(fig_bar, width='stretch')
 
     with col_right:
         st.subheader("Тепловая карта MAPE: станция × переменная")
@@ -325,7 +325,7 @@ with tab2:
             height=380,
         )
         fig_hm.update_layout(margin=dict(t=20, b=20))
-        st.plotly_chart(fig_hm, use_container_width=True)
+        st.plotly_chart(fig_hm, width='stretch')
 
     if pred_df is not None:
         st.subheader("Прогноз vs факт (scatter)")
@@ -343,7 +343,7 @@ with tab2:
             max_val = max(scatter_df[act_c].max(), scatter_df[pred_c].max())
             fig_sc.add_shape(type="line", x0=0, y0=0, x1=max_val, y1=max_val,
                              line=dict(color="red", dash="dash"))
-            st.plotly_chart(fig_sc, use_container_width=True)
+            st.plotly_chart(fig_sc, width='stretch')
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -378,7 +378,7 @@ with tab3:
                     height=360,
                 )
                 fig_box.update_layout(showlegend=False, margin=dict(t=20))
-                st.plotly_chart(fig_box, use_container_width=True)
+                st.plotly_chart(fig_box, width='stretch')
 
                 on = fa_df[fa_df[promo_col] == 1][target_col].mean()
                 off = fa_df[fa_df[promo_col] == 0][target_col].mean()
@@ -405,7 +405,7 @@ with tab3:
                     height=360,
                 )
                 fig_ad.update_layout(coloraxis_showscale=False, margin=dict(t=20))
-                st.plotly_chart(fig_ad, use_container_width=True)
+                st.plotly_chart(fig_ad, width='stretch')
 
     # ── Трафик ────────────────────────────────────────────────
     with fa2:
@@ -425,7 +425,7 @@ with tab3:
                         height=360,
                     )
                     fig_sc.update_layout(margin=dict(t=20))
-                    st.plotly_chart(fig_sc, use_container_width=True)
+                    st.plotly_chart(fig_sc, width='stretch')
 
             with c2:
                 st.subheader("Корреляция типов трафика с продажами")
@@ -441,7 +441,7 @@ with tab3:
                     height=360,
                 )
                 fig_corr.update_layout(coloraxis_showscale=False, margin=dict(t=20))
-                st.plotly_chart(fig_corr, use_container_width=True)
+                st.plotly_chart(fig_corr, width='stretch')
 
             st.subheader("Средние продажи по часам суток")
             if "hour" in fa_df.columns:
@@ -453,7 +453,7 @@ with tab3:
                     height=300,
                 )
                 fig_h.update_layout(margin=dict(t=10))
-                st.plotly_chart(fig_h, use_container_width=True)
+                st.plotly_chart(fig_h, width='stretch')
 
     # ── Погода ────────────────────────────────────────────────
     with fa3:
@@ -475,12 +475,12 @@ with tab3:
                 labels={w_choice: w_choice, target_col: f"{label} ({unit})"},
                 height=380,
             )
-            st.plotly_chart(fig_w, use_container_width=True)
+            st.plotly_chart(fig_w, width='stretch')
 
             corr_w = fa_df[avail_w + [target_col]].corr()[target_col].drop(target_col)
             st.dataframe(
                 corr_w.rename("Корреляция с продажами").round(3).to_frame(),
-                use_container_width=False,
+                width='content',
             )
 
     # ── Цены конкурентов ──────────────────────────────────────
@@ -497,7 +497,7 @@ with tab3:
                     height=380,
                     title=f"Влияние {c_choice} на {label}",
                 )
-                st.plotly_chart(fig_cp, use_container_width=True)
+                st.plotly_chart(fig_cp, width='stretch')
         else:
             st.info("Данные о ценах конкурентов не найдены.")
 
@@ -579,7 +579,7 @@ with tab4:
                         yaxis=dict(autorange="reversed"),
                         margin=dict(t=10, b=10),
                     )
-                    st.plotly_chart(fig_imp, use_container_width=True)
+                    st.plotly_chart(fig_imp, width='stretch')
                 else:
                     st.caption("Данные не доступны")
 
@@ -600,7 +600,7 @@ with tab4:
                 height=350,
                 title="Матрица внимания: какие прошлые часы важны для каждого шага прогноза",
             )
-            st.plotly_chart(fig_attn, use_container_width=True)
+            st.plotly_chart(fig_attn, width='stretch')
 
     except Exception as e:
         st.error(f"Ошибка при вычислении интерпретации: {e}")
@@ -764,7 +764,7 @@ with tab5:
                             legend=dict(orientation="h", y=1.1),
                             height=350,
                         )
-                        st.plotly_chart(fig_sc, use_container_width=True)
+                        st.plotly_chart(fig_sc, width='stretch')
 
                         if baseline is not None and not sc_ts.empty:
                             base_avg = baseline["baseline"].mean()
