@@ -103,5 +103,9 @@ print(f"  Бинарные (0/1)     : {len(bin_cols)}")
 # 5. Сохранение
 # ============================================================
 df.to_csv("data/merged_data.csv", index=False)
-print(f"\n  Сохранено: data/merged_data.csv ({df.shape[0]} x {df.shape[1]})")
-print("\nСледующий шаг: python eda/eda_column_analysis.py")
+
+print("\n" + "=" * 60)
+print("Готово.")
+print(f"  Сохранено : data/merged_data.csv ({df.shape[0]} x {df.shape[1]})")
+print("  Следующий шаг: python eda/eda_column_analysis.py")
+print("=" * 60)

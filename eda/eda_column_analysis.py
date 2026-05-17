@@ -709,5 +709,8 @@ out_path = "reports/column_analysis.md"
 with open(out_path, "w", encoding="utf-8") as f:
     f.write(report)
 
-print(f"Отчёт сохранён: {out_path}")
-print("Следующий шаг: python eda/eda_preprocessing.py")
+print("\n" + "=" * 60)
+print("Готово.")
+print(f"  Сохранено : {out_path}")
+print("  Следующий шаг: python eda/eda_preprocessing.py")
+print("=" * 60)

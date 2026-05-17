@@ -84,19 +84,22 @@ venv\Scripts\activate
 pip install -r requirements.txt
 
 # 2. Подготовка данных
-python explore_data.py               # → data/merged_data.csv
-python eda/eda_column_analysis.py    # → reports/column_analysis.txt
-python eda/eda_preprocessing.py      # → data/prepared_data.csv
+python explore_data.py               # → data/merged_data.csv (43800 × 89)
+python eda/eda_column_analysis.py    # → reports/column_analysis.md
+python eda/eda_preprocessing.py      # → data/prepared_data.csv (43800 × 119) + tft/scalers.pkl
 python eda/tft_report.py             # → reports/tft_report.docx
 
 # 3. Обучение TFT
-python tft/prepare_dataset.py        # → tft/training_dataset.pkl
+python tft/prepare_dataset.py        # → tft/training_dataset.pkl + tft/dataset_config.pkl
 python tft/train.py                  # → tft/model.ckpt
 
-# 4. EDA дашборд
+# 4. Инференс (декабрь 2023)
+python tft/predict.py                # → data/predictions.csv + data/metrics.csv
+
+# 5. Дашборды
 streamlit run dashboard/eda_dashboard.py
 
-# 5. Мониторинг обучения (в отдельном терминале)
+# 6. Мониторинг обучения (в отдельном терминале)
 tensorboard --logdir tft/logs
 ```
 

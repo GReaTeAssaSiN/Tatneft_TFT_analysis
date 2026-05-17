@@ -564,5 +564,7 @@ doc.save(out_path)
 print(f"Отчёт сохранён: {out_path}")
 
 print("\n" + "=" * 60)
-print("Готово. Следующий шаг: python tft/prepare_dataset.py")
+print("Готово.")
+print("  Сохранено : reports/tft_report.docx")
+print("  Следующий шаг: python tft/prepare_dataset.py")
 print("=" * 60)

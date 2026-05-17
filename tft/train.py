@@ -213,5 +213,7 @@ if best_path:
     print(f"Сохранено           : tft/model.ckpt")
 
 print("\n" + "=" * 60)
-print("Готово. Следующий шаг: python tft/predict.py")
+print("Готово.")
+print("  Сохранено : tft/model.ckpt")
+print("  Следующий шаг: python tft/predict.py")
 print("=" * 60)

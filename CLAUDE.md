@@ -63,13 +63,13 @@ FinalWorkDashboard/
 │
 ├── data/                       — обработанные данные (генерируются скриптами)
 │   ├── merged_data.csv         — JOIN metadata + data (43800 × 89)
-│   ├── prepared_data.csv       — после всего препроцессинга (43800 × 114)
+│   ├── prepared_data.csv       — после всего препроцессинга (43800 × 119)
 │   ├── train.csv               — Jan–Oct 2023 (~83.6%)
 │   ├── val.csv                 — Nov 2023 (~8.2%)
 │   └── test.csv                — Dec 2023 (~8.2%)
 │
 ├── eda/                        — разведочный анализ и препроцессинг
-│   ├── eda_column_analysis.py  — анализ колонок: группы, типы, роли для TFT → reports/column_analysis.txt
+│   ├── eda_column_analysis.py  — анализ колонок: группы, типы, роли для TFT → reports/column_analysis.md
 │   ├── eda_preprocessing.py    — EDA-предобработка (консольный вывод) → data/prepared_data.csv + tft/scalers.pkl
 │   └── tft_report.py           — DOCX отчёт: переменные, препроцессинг, TFT → reports/tft_report.docx
 │
@@ -95,7 +95,7 @@ FinalWorkDashboard/
 │   └── torch_compat.py         — патч torch.load для PyTorch 2.6 (weights_only=False)
 │
 ├── reports/                    — сгенерированные отчёты
-│   ├── column_analysis.txt     — анализ колонок по группам TFT
+│   ├── column_analysis.md      — анализ колонок по группам TFT (Markdown)
 │   └── tft_report.docx         — DOCX: переменные + препроцессинг + TFT
 │
 ├── explore_data.py             — первичное изучение и JOIN исходных CSV
@@ -115,7 +115,7 @@ FinalWorkDashboard/
 ```bash
 # EDA + препроцессинг (запускать из корня проекта)
 python explore_data.py               # → data/merged_data.csv
-python eda/eda_column_analysis.py    # → reports/column_analysis.txt
+python eda/eda_column_analysis.py    # → reports/column_analysis.md
 python eda/eda_preprocessing.py      # → data/prepared_data.csv + tft/scalers.pkl
 python eda/tft_report.py             # → reports/tft_report.docx
 

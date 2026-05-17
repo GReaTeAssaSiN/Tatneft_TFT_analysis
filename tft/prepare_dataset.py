@@ -310,5 +310,7 @@ print("  tft/training_dataset.pkl — объект TimeSeriesDataSet (для tra
 print("  tft/dataset_config.pkl   — конфигурация датасета (параметры, списки колонок)")
 
 print("\n" + "=" * 60)
-print("Готово. Следующий шаг: python tft/train.py")
+print("Готово.")
+print("  Сохранено : tft/training_dataset.pkl, tft/dataset_config.pkl")
+print("  Следующий шаг: python tft/train.py")
 print("=" * 60)
