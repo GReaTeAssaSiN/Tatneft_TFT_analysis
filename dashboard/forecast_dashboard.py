@@ -1,6 +1,6 @@
 """
 Дашборд прогнозов TFT — декабрь 2023.
-Вкладки: Прогноз | Метрики | Факторы | Интерпретация TFT | Сценарий & Рекомендации
+Вкладки: Прогноз | Качество модели | Факторный анализ | Сценарий & Рекомендации
 Запускать из корня проекта: streamlit run dashboard/forecast_dashboard.py
 """
 
@@ -48,8 +48,6 @@ TARGET_LABELS = {
 }
 UNITS = {**{c: "л/ч" for c in FUEL_COLS}, **{c: "руб/ч" for c in SHOP_COLS}}
 
-COLORS = px.colors.qualitative.Plotly
-
 # ── Конфиг страницы ───────────────────────────────────────────
 st.set_page_config(
     page_title="TFT Прогнозы — АЗС Татнефть",
@@ -91,20 +89,17 @@ def load_prepared():
 
 @st.cache_data
 def load_ad_channel_map():
-    """Возвращает словарь enc -> channel_name."""
     df = pd.read_csv("data/prepared_data.csv", usecols=["ad_channel", "ad_channel_enc"])
-    mapping = (
+    return (
         df.drop_duplicates()
         .sort_values("ad_channel_enc")
         .set_index("ad_channel_enc")["ad_channel"]
         .to_dict()
     )
-    return mapping
 
 
 @st.cache_resource
 def load_tft():
-    """Загружает TFT-модель и TimeSeriesDataSet (кешируется на сессию)."""
     try:
         from pytorch_forecasting import TemporalFusionTransformer
 
@@ -127,7 +122,7 @@ def load_tft():
         return None, None, None, str(e)
 
 
-# ── Основные данные ───────────────────────────────────────────
+# ── Данные ────────────────────────────────────────────────────
 pred_df = load_predictions()
 metrics_df = load_metrics()
 prepared_df = load_prepared()
@@ -147,17 +142,18 @@ with st.sidebar:
     st.divider()
 
     sel_station = st.selectbox("Станция", ["Все"] + stations)
-    sel_group = st.radio("Группа", ["Топливо", "Магазин"])
-    target_opts = FUEL_COLS if sel_group == "Топливо" else SHOP_COLS
     sel_target = st.selectbox(
         "Целевая переменная",
-        options=target_opts,
+        options=TARGET_COLS,
         format_func=lambda x: TARGET_LABELS.get(x, x),
     )
 
     st.divider()
     st.caption(f"Encoder: {ENCODER_LENGTH} ч  |  Horizon: {PREDICTION_LENGTH} ч")
     st.caption("TFT — Lim et al., 2020")
+    st.divider()
+    st.caption("🧠 Интерпретация TFT:")
+    st.caption("`streamlit run dashboard/tft_interpretation.py`")
 
 
 # ── Вспомогательные функции ───────────────────────────────────
@@ -215,20 +211,39 @@ def forecast_chart(df, target):
 
 
 # ═══════════════════════════════════════════════════════════════
-# TAB 1: ПРОГНОЗ ДЕКАБРЯ
+# TABS
 # ═══════════════════════════════════════════════════════════════
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4 = st.tabs([
     "📊 Прогноз декабря",
     "📈 Качество модели",
     "🔍 Факторный анализ",
-    "🧠 Интерпретация TFT",
     "🎯 Сценарий & Рекомендации",
 ])
 
+
+# ═══════════════════════════════════════════════════════════════
+# TAB 1: ПРОГНОЗ ДЕКАБРЯ
+# ═══════════════════════════════════════════════════════════════
 with tab1:
     if pred_df is None:
         st.warning("Файл data/predictions.csv не найден. Запустите python tft/predict.py")
         st.stop()
+
+    with st.expander("📖 Как читать этот раздел?", expanded=False):
+        st.markdown("""
+        **Синяя линия** — фактические продажи за декабрь 2023 (исходные данные).
+
+        **Оранжевая пунктирная линия** — прогноз модели TFT на 24 часа вперёд.
+
+        **Оранжевая полупрозрачная область** — доверительный интервал (квантили q10–q90):
+        модель утверждает, что с вероятностью ~80% реальное значение попадёт в эту полосу.
+        Широкая полоса = модель менее уверена (высокая волатильность данных или редкое событие).
+
+        Метрики в карточках вверху:
+        - **MAE** — средняя абсолютная ошибка в единицах измерения (л/ч или руб/ч)
+        - **RMSE** — корень среднеквадратичной ошибки (штрафует за крупные промахи сильнее)
+        - **MAPE** — относительная ошибка в процентах: ≤10% — отлично, 10–20% — хорошо, >30% — слабо
+        """)
 
     # KPI-строка
     if metrics_df is not None:
@@ -240,20 +255,18 @@ with tab1:
             c2.metric("RMSE", f"{sub_m['RMSE'].mean():.2f}")
             mape = sub_m["MAPE_%"].mean()
             c3.metric("MAPE", f"{mape:.1f} %" if not np.isnan(mape) else "N/A")
-            c4.metric("Горизонт", f"{PREDICTION_LENGTH} ч")
+            c4.metric("Горизонт прогноза", f"{PREDICTION_LENGTH} ч")
 
     st.divider()
 
     df_plot = filter_pred(pred_df, sel_station, sel_target)
     if df_plot is not None and not df_plot.empty:
-        # Если несколько станций — агрегируем по времени
         if sel_station == "Все":
             num_cols = [c for c in df_plot.columns if c not in ("station_id", "timestamp", "horizon_h")]
             df_plot = df_plot.groupby("timestamp")[num_cols].mean().reset_index()
 
         st.plotly_chart(forecast_chart(df_plot, sel_target), width='stretch')
 
-        # Разбивка по неделям
         st.subheader("Среднесуточные значения по декабрю")
         df_day = df_plot.copy()
         df_day["date"] = df_plot["timestamp"].dt.date
@@ -273,16 +286,34 @@ with tab1:
 # ═══════════════════════════════════════════════════════════════
 with tab2:
     if metrics_df is None:
-        st.warning("Файл data/metrics.csv не найден.")
+        st.warning("Файл data/metrics.csv не найден. Запустите python tft/predict.py")
         st.stop()
 
-    st.subheader("Метрики по всем целевым переменным и станциям")
+    with st.expander("📖 Как читать метрики?", expanded=False):
+        st.markdown("""
+        **MAE (Mean Absolute Error)** — средняя абсолютная ошибка в единицах измерения.
+        Для топлива: если MAE = 5 л/ч, модель в среднем ошибается на 5 литров в час.
+
+        **RMSE (Root Mean Squared Error)** — похож на MAE, но сильнее штрафует за крупные промахи.
+        Если RMSE >> MAE — значит, есть редкие часы с большими выбросами ошибки.
+
+        **MAPE (Mean Absolute Percentage Error)** — ошибка в процентах от фактического значения.
+        Наиболее интерпретируемая метрика для сравнения разных переменных.
+        Ориентир: ≤10% — отлично, 10–20% — хорошо, 20–30% — приемлемо, >30% — требует доработки.
+
+        **Тепловая карта** показывает MAPE по каждой паре (станция × переменная).
+        Красный = высокая ошибка, зелёный = низкая. Видно, какие станции или продукты сложнее предсказывать.
+
+        **Scatter "прогноз vs факт"** — в идеале все точки лежат на красной пунктирной линии (y=x).
+        Точки выше линии — модель завышает, ниже — занижает прогноз.
+        """)
 
     disp = metrics_df.copy()
     disp["target_label"] = disp["target"].map(TARGET_LABELS).fillna(disp["target"])
     if sel_station != "Все":
         disp = disp[disp["station_id"].astype(str) == sel_station]
 
+    st.subheader("Метрики по всем целевым переменным и станциям")
     st.dataframe(
         disp[["station_id", "target_label", "MAE", "RMSE", "MAPE_%", "n"]]
         .rename(columns={"target_label": "Переменная", "station_id": "Станция"})
@@ -296,9 +327,8 @@ with tab2:
 
     with col_left:
         st.subheader("MAPE по переменным (среднее по станциям)")
-        avg_mape = (
-            metrics_df.groupby("target")["MAPE_%"].mean().reset_index()
-        )
+        st.caption("Чем короче полоска — тем точнее прогноз по этой переменной.")
+        avg_mape = metrics_df.groupby("target")["MAPE_%"].mean().reset_index()
         avg_mape["label"] = avg_mape["target"].map(TARGET_LABELS).fillna(avg_mape["target"])
         avg_mape = avg_mape.sort_values("MAPE_%", na_position="last")
         fig_bar = px.bar(
@@ -312,6 +342,7 @@ with tab2:
 
     with col_right:
         st.subheader("Тепловая карта MAPE: станция × переменная")
+        st.caption("Красный — высокая ошибка, зелёный — низкая. Помогает найти проблемные станции и продукты.")
         pivot = metrics_df.pivot_table(
             index="station_id", columns="target", values="MAPE_%", aggfunc="mean"
         )
@@ -328,7 +359,9 @@ with tab2:
         st.plotly_chart(fig_hm, width='stretch')
 
     if pred_df is not None:
-        st.subheader("Прогноз vs факт (scatter)")
+        st.subheader("Прогноз vs факт — scatter")
+        st.caption("Идеальная модель: все точки на красной диагональной линии y = x. "
+                   "Облако точек вблизи линии — хорошее качество прогноза.")
         pred_c, act_c = f"{sel_target}_pred", f"{sel_target}_actual"
         scatter_df = pred_df[[pred_c, act_c]].dropna() if all(
             c in pred_df.columns for c in [pred_c, act_c]
@@ -358,10 +391,21 @@ with tab3:
     label = TARGET_LABELS.get(target_col, target_col)
     unit = UNITS.get(target_col, "")
 
+    st.info(
+        "Анализ влияния внешних факторов на продажи — на основе фактических данных декабря 2023. "
+        "Выберите вкладку ниже."
+    )
+
     fa1, fa2, fa3, fa4 = st.tabs(["Акции & Реклама", "Трафик", "Погода", "Цены конкурентов"])
 
     # ── Акции & Реклама ────────────────────────────────────────
     with fa1:
+        st.markdown("""
+        **Box plot** — ящик с усами. Линия внутри ящика — медиана. Ящик — межквартильный размах (50% данных).
+        Сравниваем распределение продаж *при активной акции* (красный) и *без акции* (синий).
+        Если красный ящик выше — акция действительно увеличивает продажи.
+        """)
+
         c1, c2 = st.columns(2)
 
         with c1:
@@ -392,6 +436,7 @@ with tab3:
 
         with c2:
             st.subheader("Продажи по каналу рекламы")
+            st.caption("Средние продажи в часы, когда каждый канал рекламы был активен.")
             if "ad_channel" in fa_df.columns:
                 ad_avg = (
                     fa_df.groupby("ad_channel")[target_col].mean()
@@ -409,6 +454,16 @@ with tab3:
 
     # ── Трафик ────────────────────────────────────────────────
     with fa2:
+        st.markdown("""
+        **Scatter (левый)** — каждая точка = один час декабря.
+        Цвет точки — час суток (тёмный = ночь, светлый = день).
+        Если облако точек направлено вверх-вправо — при большем трафике продажи растут.
+
+        **Корреляция (правый)** — коэффициент Пирсона r от −1 до +1.
+        r > 0 → совместный рост, r < 0 → обратная зависимость.
+        |r| > 0.5 считается сильной связью.
+        """)
+
         traffic_cols = [c for c in fa_df.columns if c.startswith("traffic_") or c == "total_traffic"]
         if traffic_cols and target_col in fa_df.columns:
             c1, c2 = st.columns(2)
@@ -416,12 +471,18 @@ with tab3:
             with c1:
                 st.subheader("Общий трафик vs продажи")
                 if "total_traffic" in fa_df.columns:
-                    sc_df = fa_df[["total_traffic", target_col, "hour"]].dropna()
+                    # Используем timestamp для получения реального часа
+                    sc_df = fa_df[["total_traffic", target_col, "timestamp"]].dropna().copy()
+                    sc_df["hour_real"] = pd.to_datetime(sc_df["timestamp"]).dt.hour
                     fig_sc = px.scatter(
                         sc_df, x="total_traffic", y=target_col,
-                        color="hour", color_continuous_scale="Viridis",
+                        color="hour_real", color_continuous_scale="Viridis",
                         opacity=0.4,
-                        labels={"total_traffic": "Общий трафик (авт/ч)", target_col: f"{label} ({unit})", "hour": "Час"},
+                        labels={
+                            "total_traffic": "Общий трафик (авт/ч)",
+                            target_col: f"{label} ({unit})",
+                            "hour_real": "Час суток",
+                        },
                         height=360,
                     )
                     fig_sc.update_layout(margin=dict(t=20))
@@ -444,28 +505,41 @@ with tab3:
                 st.plotly_chart(fig_corr, width='stretch')
 
             st.subheader("Средние продажи по часам суток")
-            if "hour" in fa_df.columns:
-                hourly = fa_df.groupby("hour")[target_col].mean().reset_index()
-                fig_h = px.line(
-                    hourly, x="hour", y=target_col,
-                    markers=True,
-                    labels={"hour": "Час суток", target_col: f"{label} ({unit})"},
-                    height=300,
-                )
-                fig_h.update_layout(margin=dict(t=10))
-                st.plotly_chart(fig_h, width='stretch')
+            st.caption("Показывает суточный паттерн: пиковые и спальные часы для выбранной переменной.")
+            hour_raw = pd.to_datetime(fa_df["timestamp"]).dt.hour
+            hourly = fa_df.groupby(hour_raw)[target_col].mean().reset_index()
+            hourly.columns = ["Час", target_col]
+            fig_h = px.line(
+                hourly, x="Час", y=target_col,
+                markers=True,
+                labels={"Час": "Час суток (0–23)", target_col: f"{label} ({unit})"},
+                height=300,
+            )
+            fig_h.update_layout(margin=dict(t=10))
+            st.plotly_chart(fig_h, width='stretch')
 
     # ── Погода ────────────────────────────────────────────────
     with fa3:
+        st.markdown("""
+        **Scatter с линией тренда (OLS)** — каждая точка = один час.
+        Красная линия — линейная регрессия: направление показывает характер зависимости.
+
+        Если линия идёт вверх → фактор положительно влияет на продажи.
+        Если вниз → отрицательное влияние.
+        Угол наклона → сила влияния.
+
+        Таблица корреляций ниже суммирует все погодные факторы разом.
+        """)
+
         weather_cols = ["temperature", "precipitation_mm", "wind_speed_ms", "visibility_km"]
         avail_w = [c for c in weather_cols if c in fa_df.columns]
         if avail_w:
             w_choice = st.selectbox("Погодный фактор", avail_w,
                                     format_func=lambda x: {
-                                        "temperature": "Температура (°C)",
-                                        "precipitation_mm": "Осадки (мм/ч)",
-                                        "wind_speed_ms": "Скорость ветра (м/с)",
-                                        "visibility_km": "Видимость (км)",
+                                        "temperature": "Температура (°C, норм.)",
+                                        "precipitation_mm": "Осадки (мм/ч, норм.)",
+                                        "wind_speed_ms": "Скорость ветра (м/с, норм.)",
+                                        "visibility_km": "Видимость (км, норм.)",
                                     }.get(x, x))
             sc_df = fa_df[[w_choice, target_col]].dropna()
             fig_w = px.scatter(
@@ -477,7 +551,13 @@ with tab3:
             )
             st.plotly_chart(fig_w, width='stretch')
 
+            st.subheader("Корреляция всех погодных факторов с продажами")
             corr_w = fa_df[avail_w + [target_col]].corr()[target_col].drop(target_col)
+            corr_w.index = [
+                {"temperature": "Температура", "precipitation_mm": "Осадки",
+                 "wind_speed_ms": "Скорость ветра", "visibility_km": "Видимость"}.get(i, i)
+                for i in corr_w.index
+            ]
             st.dataframe(
                 corr_w.rename("Корреляция с продажами").round(3).to_frame(),
                 width='content',
@@ -485,6 +565,16 @@ with tab3:
 
     # ── Цены конкурентов ──────────────────────────────────────
     with fa4:
+        st.markdown("""
+        **Цены конкурентов** — z-score нормализованные значения (0 = среднее по году).
+
+        Если тренд **отрицательный** (линия идёт вниз) → когда конкурент повышает цены,
+        наши продажи растут: покупатели переключаются на нашу АЗС.
+
+        Если тренд **положительный** → цены конкурента и наши продажи движутся синхронно
+        (например, оба реагируют на сезонный спрос).
+        """)
+
         comp_cols = [c for c in fa_df.columns if c.startswith("competitor_price_")]
         if comp_cols:
             c_choice = st.selectbox("Цена конкурента", comp_cols)
@@ -503,127 +593,35 @@ with tab3:
 
 
 # ═══════════════════════════════════════════════════════════════
-# TAB 4: ИНТЕРПРЕТАЦИЯ TFT
+# TAB 4: СЦЕНАРИЙ & РЕКОМЕНДАЦИИ
 # ═══════════════════════════════════════════════════════════════
 with tab4:
-    st.info("Загрузка модели занимает ~30 секунд при первом открытии вкладки.")
+    st.info(
+        "Измените будущие условия (акции, реклама) — TFT пересчитает прогноз на 24 часа вперёд. "
+        "Это позволяет оценить эффект управленческих решений **до их принятия**. "
+        "Первый запуск загружает модель (~30 сек)."
+    )
 
-    with st.spinner("Загрузка TFT-модели..."):
-        model, training, tft_config, err = load_tft()
-
-    if err:
-        st.error(f"Не удалось загрузить модель: {err}")
-        st.stop()
-
-    st.success(f"Модель загружена. Параметров: {sum(p.numel() for p in model.parameters()):,}")
-
-    try:
-        from pytorch_forecasting import TimeSeriesDataSet
-
-        # Контекст для интерпретации — ноябрь + первые 10 дней декабря (быстро)
-        context_start = pd.Timestamp("2023-11-01")
-        interp_df = prepared_df[
-            (prepared_df["timestamp"] >= context_start)
-            & (prepared_df["timestamp"] <= pd.Timestamp("2023-12-10 23:00:00"))
-        ].copy()
-        for col in tft_config["static_cats"] + tft_config["known_cats"]:
-            if col in interp_df.columns:
-                interp_df[col] = interp_df[col].astype(str)
-
-        interp_ds = TimeSeriesDataSet.from_dataset(training, interp_df, stop_randomization=True)
-        interp_loader = interp_ds.to_dataloader(train=False, batch_size=32, num_workers=0)
-
-        with st.spinner("Вычисление интерпретации (несколько секунд)..."):
-            raw = model.predict(
-                interp_loader, mode="raw", return_index=True,
-                trainer_kwargs={"logger": False, "enable_progress_bar": False},
-            )
-            out = raw.output if hasattr(raw, "output") else raw[0]
-            interpretation = model.interpret_output(out, reduction="mean")
-
-        # ── Важность переменных ───────────────────────────────
-        st.subheader("Важность переменных (Variable Selection Networks)")
-        c1, c2, c3 = st.columns(3)
-
-        for col_obj, key, title in [
-            (c1, "static_variables", "Статические"),
-            (c2, "encoder_variables", "Энкодер (прошлое)"),
-            (c3, "decoder_variables", "Декодер (будущее)"),
-        ]:
-            with col_obj:
-                st.markdown(f"**{title}**")
-                if key in interpretation:
-                    vals = interpretation[key].detach().cpu().numpy()
-                    if key == "static_variables":
-                        names = model.static_variables
-                    elif key == "encoder_variables":
-                        names = model.encoder_variables
-                    else:
-                        names = model.decoder_variables
-
-                    if vals.ndim > 1:
-                        vals = vals.mean(axis=0)
-                    n = min(len(names), len(vals))
-                    imp_df = (
-                        pd.DataFrame({"Переменная": names[:n], "Важность": vals[:n]})
-                        .sort_values("Важность", ascending=False)
-                        .head(15)
-                    )
-                    fig_imp = px.bar(
-                        imp_df, x="Важность", y="Переменная",
-                        orientation="h", height=420,
-                        color="Важность", color_continuous_scale="Blues",
-                    )
-                    fig_imp.update_layout(
-                        coloraxis_showscale=False,
-                        yaxis=dict(autorange="reversed"),
-                        margin=dict(t=10, b=10),
-                    )
-                    st.plotly_chart(fig_imp, width='stretch')
-                else:
-                    st.caption("Данные не доступны")
-
-        # ── Временное внимание ────────────────────────────────
-        if "attention" in interpretation:
-            st.subheader("Временно́е внимание (Temporal Self-Attention)")
-            attn = interpretation["attention"].detach().cpu().numpy()
-            if attn.ndim == 3:
-                attn = attn.mean(axis=0)
-            elif attn.ndim == 4:
-                attn = attn.mean(axis=(0, 1))
-
-            fig_attn = px.imshow(
-                attn,
-                color_continuous_scale="Viridis",
-                labels=dict(x="Шаг энкодера (ч назад)", y="Шаг декодера (ч вперёд)", color="Внимание"),
-                aspect="auto",
-                height=350,
-                title="Матрица внимания: какие прошлые часы важны для каждого шага прогноза",
-            )
-            st.plotly_chart(fig_attn, width='stretch')
-
-    except Exception as e:
-        st.error(f"Ошибка при вычислении интерпретации: {e}")
-        st.caption("Интерпретация может быть недоступна для данного чекпоинта.")
-
-
-# ═══════════════════════════════════════════════════════════════
-# TAB 5: СЦЕНАРИЙ & РЕКОМЕНДАЦИИ
-# ═══════════════════════════════════════════════════════════════
-with tab5:
     sc_col, rec_col = st.columns([1, 1])
 
-    # ── Сценарный анализ (What-if) ────────────────────────────
+    # ── Сценарный анализ ──────────────────────────────────────
     with sc_col:
         st.subheader("🎯 Сценарный анализ (What-if)")
-        st.caption(
-            "Выберите дату, измените условия — модель пересчитает прогноз на 24 ч."
-        )
+
+        with st.expander("📖 Как работает сценарный анализ?", expanded=False):
+            st.markdown("""
+            1. Выберите станцию и дату начала 24-часового окна прогноза.
+            2. Включите/выключите акции или рекламу.
+            3. Нажмите **Запустить прогноз** — TFT пересчитает все 24 шага с новыми условиями.
+            4. Сравните **сценарный прогноз** (оранжевый) с **базовым** (синий пунктир).
+
+            Базовый прогноз — это результат из `data/predictions.csv` (реальные условия декабря).
+            Разница между ними — **чистый эффект** изменённых параметров.
+            """)
 
         sc_station = st.selectbox("Станция", stations, key="sc_station")
 
         dec_dates = sorted(dec_df["timestamp"].dt.date.unique())
-        # Нужен контекст 168ч, поэтому минимальная дата — 8-е декабря
         valid_dates = [d for d in dec_dates if d >= (TEST_START + pd.Timedelta(hours=ENCODER_LENGTH)).date()]
         sc_date = st.selectbox(
             "Дата прогноза (начало 24-часового окна)",
@@ -638,15 +636,11 @@ with tab5:
         sc_ad_active = st.toggle("Реклама активна (ad_active)", key="sc_ad")
 
         ad_options = {v: k for k, v in ad_map.items()}
-        sc_ad_channel = st.selectbox(
-            "Канал рекламы",
-            options=list(ad_options.keys()),
-            key="sc_ch",
-        )
+        sc_ad_channel = st.selectbox("Канал рекламы", options=list(ad_options.keys()), key="sc_ch")
 
         sc_target = st.selectbox(
             "Показать прогноз по",
-            target_opts,
+            TARGET_COLS,
             format_func=lambda x: TARGET_LABELS.get(x, x),
             key="sc_tgt",
         )
@@ -654,10 +648,13 @@ with tab5:
         run_btn = st.button("▶ Запустить прогноз", type="primary")
 
         if run_btn:
-            if model is None:
-                st.error("Модель не загружена. Откройте вкладку «Интерпретация TFT» сначала.")
+            with st.spinner("Загрузка модели и пересчёт (~30 сек при первом запуске)..."):
+                model, training, tft_config, err = load_tft()
+
+            if err or model is None:
+                st.error(f"Не удалось загрузить модель: {err}")
             else:
-                with st.spinner("Пересчёт прогноза TFT (~15 сек)..."):
+                with st.spinner("Вычисление сценарного прогноза..."):
                     try:
                         from pytorch_forecasting import TimeSeriesDataSet
 
@@ -665,13 +662,11 @@ with tab5:
                         context_start_sc = pred_start - pd.Timedelta(hours=ENCODER_LENGTH)
                         pred_end_sc = pred_start + pd.Timedelta(hours=PREDICTION_LENGTH - 1)
 
-                        # Контекстный датафрейм (все станции, энкодер + декодер)
                         ctx = prepared_df[
                             (prepared_df["timestamp"] >= context_start_sc)
                             & (prepared_df["timestamp"] <= pred_end_sc)
                         ].copy()
 
-                        # Применяем изменения только к выбранной станции в декодере
                         fut_mask = (ctx["station_id"] == sc_station) & (ctx["timestamp"] >= pred_start)
                         ctx.loc[fut_mask, "promotion_fuel_active"] = int(sc_promo_fuel)
                         ctx.loc[fut_mask, "promotion_shop_active"] = int(sc_promo_shop)
@@ -692,7 +687,6 @@ with tab5:
                         sc_preds = sc_result.output if hasattr(sc_result, "output") else sc_result[0]
                         sc_idx = sc_result.index if hasattr(sc_result, "index") else sc_result[1]
 
-                        # Декодируем station_id
                         sid_enc = training.categorical_encoders.get("station_id")
                         if sid_enc is not None:
                             sc_idx = sc_idx.copy()
@@ -704,7 +698,6 @@ with tab5:
                         q_med = len(model.loss.quantiles) // 2
                         arr = sc_preds[t_i].detach().cpu().numpy()
 
-                        # Строим временной ряд прогноза для выбранной станции
                         ts_lookup = (
                             prepared_df[["station_id", "time_idx", "timestamp"]]
                             .drop_duplicates()
@@ -728,18 +721,17 @@ with tab5:
 
                         sc_ts = pd.DataFrame(rows).groupby("timestamp")["scenario"].mean().reset_index()
 
-                        # Baseline из predictions.csv
                         baseline = None
                         if pred_df is not None:
-                            pred_col = f"{sc_target}_pred"
+                            pred_col_name = f"{sc_target}_pred"
                             base = pred_df[
                                 (pred_df["station_id"] == sc_station)
                                 & (pred_df["timestamp"] >= pred_start)
                                 & (pred_df["timestamp"] <= pred_end_sc)
                             ]
-                            if pred_col in base.columns:
-                                baseline = base[["timestamp", pred_col]].rename(
-                                    columns={pred_col: "baseline"}
+                            if pred_col_name in base.columns:
+                                baseline = base[["timestamp", pred_col_name]].rename(
+                                    columns={pred_col_name: "baseline"}
                                 )
 
                         fig_sc = go.Figure()
@@ -783,26 +775,33 @@ with tab5:
     # ── Рекомендации ──────────────────────────────────────────
     with rec_col:
         st.subheader("💡 Автоматические рекомендации")
-        st.caption("Вычислены по данным декабря 2023 и метрикам модели.")
+        st.caption(
+            "Вычислены по фактическим данным декабря 2023 и метрикам модели. "
+            "Помогают принять решение: когда и как продавать эффективнее."
+        )
+
+        recs_df = dec_df.copy()
+        if sel_station != "Все":
+            recs_df = recs_df[recs_df["station_id"] == sel_station]
 
         recs = []
 
         # 1. Эффект акций
-        if "promotion_fuel_active" in dec_df.columns and FUEL_COLS[0] in dec_df.columns:
+        if "promotion_fuel_active" in recs_df.columns and FUEL_COLS[0] in recs_df.columns:
             for fuel in FUEL_COLS[:3]:
-                on = dec_df[dec_df["promotion_fuel_active"] == 1][fuel].mean()
-                off = dec_df[dec_df["promotion_fuel_active"] == 0][fuel].mean()
+                on = recs_df[recs_df["promotion_fuel_active"] == 1][fuel].mean()
+                off = recs_df[recs_df["promotion_fuel_active"] == 0][fuel].mean()
                 if off > 0 and not np.isnan(on):
                     delta = (on - off) / off * 100
                     sign = "+" if delta > 0 else ""
                     recs.append(
-                        f"**Акция на топливо** увеличивает продажи {TARGET_LABELS[fuel]} "
+                        f"**Акция на топливо** изменяет продажи {TARGET_LABELS[fuel]} "
                         f"на **{sign}{delta:.1f}%** (ср. {on:.1f} vs {off:.1f} л/ч)"
                     )
 
         # 2. Лучший канал рекламы
-        if "ad_channel" in dec_df.columns and sel_target in dec_df.columns:
-            ad_avg = dec_df.groupby("ad_channel")[sel_target].mean()
+        if "ad_channel" in recs_df.columns and sel_target in recs_df.columns:
+            ad_avg = recs_df.groupby("ad_channel")[sel_target].mean()
             if not ad_avg.empty:
                 best_ch = ad_avg.idxmax()
                 recs.append(
@@ -810,26 +809,28 @@ with tab5:
                     f"**{best_ch}** (ср. {ad_avg[best_ch]:.1f} {UNITS.get(sel_target,'')})"
                 )
 
-        # 3. Пиковые часы
-        if "hour" in dec_df.columns and sel_target in dec_df.columns:
-            hourly = dec_df.groupby("hour")[sel_target].mean()
-            peak_h = int(hourly.idxmax())
-            recs.append(
-                f"**Пиковые продажи** {TARGET_LABELS.get(sel_target, sel_target)}: "
-                f"**{peak_h}:00 – {(peak_h+2)%24}:00** "
-                f"(ср. {hourly[peak_h]:.1f} {UNITS.get(sel_target,'')})"
-            )
+        # 3. Пиковые часы (из timestamp — hour z-score нормализован)
+        if "timestamp" in recs_df.columns and sel_target in recs_df.columns:
+            hour_raw = pd.to_datetime(recs_df["timestamp"]).dt.hour
+            hourly = recs_df.groupby(hour_raw)[sel_target].mean()
+            if not hourly.empty:
+                peak_h = int(hourly.idxmax())
+                recs.append(
+                    f"**Пиковые продажи** {TARGET_LABELS.get(sel_target, sel_target)}: "
+                    f"**{peak_h}:00 – {(peak_h + 2) % 24}:00** "
+                    f"(ср. {hourly[peak_h]:.1f} {UNITS.get(sel_target, '')})"
+                )
 
         # 4. Трафик-корреляция
-        if "total_traffic" in dec_df.columns and sel_target in dec_df.columns:
-            corr_t = dec_df[["total_traffic", sel_target]].corr().iloc[0, 1]
+        if "total_traffic" in recs_df.columns and sel_target in recs_df.columns:
+            corr_t = recs_df[["total_traffic", sel_target]].corr().iloc[0, 1]
             direction = "положительная" if corr_t > 0 else "отрицательная"
             recs.append(
                 f"**Связь трафика** с {TARGET_LABELS.get(sel_target, sel_target)}: "
                 f"{direction} корреляция **r = {corr_t:.2f}**"
             )
 
-        # 5. Точность модели по целям
+        # 5. Точность модели
         if metrics_df is not None:
             avg = metrics_df.groupby("target")["MAPE_%"].mean().dropna()
             if not avg.empty:
@@ -841,18 +842,20 @@ with tab5:
                 )
                 recs.append(
                     f"**Наименее предсказуемо**: {TARGET_LABELS.get(worst_t, worst_t)} "
-                    f"(MAPE = {avg[worst_t]:.1f}%) — требует дополнительных признаков"
+                    f"(MAPE = {avg[worst_t]:.1f}%) — сложная нелинейная динамика"
                 )
 
-        # 6. Рекомендация по дням недели
-        if "day_of_week" in dec_df.columns and sel_target in dec_df.columns:
+        # 6. Лучший день недели (из timestamp — day_of_week z-score нормализован)
+        if "timestamp" in recs_df.columns and sel_target in recs_df.columns:
             day_names = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
-            dow_avg = dec_df.groupby("day_of_week")[sel_target].mean()
-            best_dow = int(dow_avg.idxmax())
-            recs.append(
-                f"**Лучший день** для {TARGET_LABELS.get(sel_target, sel_target)}: "
-                f"**{day_names[best_dow]}** (ср. {dow_avg[best_dow]:.1f} {UNITS.get(sel_target,'')})"
-            )
+            dow_raw = pd.to_datetime(recs_df["timestamp"]).dt.dayofweek
+            dow_avg = recs_df.groupby(dow_raw)[sel_target].mean()
+            if not dow_avg.empty:
+                best_dow = int(dow_avg.idxmax())
+                recs.append(
+                    f"**Лучший день недели** для {TARGET_LABELS.get(sel_target, sel_target)}: "
+                    f"**{day_names[best_dow]}** (ср. {dow_avg[best_dow]:.1f} {UNITS.get(sel_target, '')})"
+                )
 
         for i, rec in enumerate(recs, 1):
             st.markdown(f"{i}. {rec}")
