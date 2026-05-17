@@ -224,7 +224,7 @@ add_table(
         [
             "time_varying_known_reals",
             "Числовые признаки, известные заранее (цены, акции, час суток)",
-            "21 + 8 sin/cos",
+            "20 + 8 sin/cos = 28",
         ],
         [
             "time_varying_unknown_reals",
@@ -324,7 +324,7 @@ add_table(
         [
             "Магазин (1 переменная)",
             "shop_total_revenue",
-            "Z-score. log1p + _orig.\n"
+            "log1p + _orig. Z-score не применяется (в LOG_COLS — нормализует TorchNormalizer внутри TFT).\n"
             "Категории магазина (shop_напитки, shop_закуски, shop_автотовары,\n"
             "shop_кофе, shop_табак) перенесены в целевые переменные.",
         ],
@@ -517,7 +517,7 @@ add_table(
             "data",
             "hour (+sin/cos), day_of_week (+sin/cos), week_of_year (+sin/cos), "
             "month (+sin/cos), quarter, is_* (4), promotion_* (3), "
-            "ad_active, price_* (7) — итого 29 колонок",
+            "ad_active, price_* (7) — итого 28 колонок",
         ],
         [
             "unknown_reals",
