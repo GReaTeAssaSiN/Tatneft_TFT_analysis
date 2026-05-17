@@ -14,6 +14,9 @@ tft/logs/
 tft/model.ckpt
 tft/*.pkl
 
+# Lightning default logger (создаётся при model.predict без явного logger=False)
+lightning_logs/
+
 # Сгенерированные отчёты отслеживаются (см. reports/)
 
 # Исходные материалы из диалога с Claude (не код)
