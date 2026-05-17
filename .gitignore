@@ -15,8 +15,7 @@ tft/logs/
 tft/model.ckpt
 tft/*.pkl
 
-# Сгенерированные отчёты
-reports/
+# Сгенерированные отчёты отслеживаются (см. reports/)
 
 # Исходные материалы из диалога с Claude (не код)
 SourceDataForWork/Generation/

@@ -1,0 +1,352 @@
+
+======================================================================
+АНАЛИЗ ПЕРЕМЕННЫХ ДЛЯ TFT-МОДЕЛИ
+======================================================================
+  Файл         : data/merged_data.csv
+  Строк        : 43800
+  Колонок      : 89
+  Период       : 2023-01-01 -- 2023-12-31
+  Станций      : 5
+  Часов/станцию: 8760
+
+======================================================================
+СВОДНАЯ ТАБЛИЦА: TFT-РОЛЬ -> КОЛИЧЕСТВО ПЕРЕМЕННЫХ
+======================================================================
+  static_reals                                 : 27 колонок
+  time_varying_known_reals                     : 20 колонок
+  time_varying_unknown_reals                   : 19 колонок
+  target + time_varying_unknown_reals          : 12 колонок
+  time_varying_known_categoricals              : 4 колонок
+  не подаётся в модель                         : 3 колонок
+  static_categoricals                          : 3 колонок
+  group_ids                                    : 1 колонок
+
+======================================================================
+ОПИСАНИЕ ГРУПП ПЕРЕМЕННЫХ
+======================================================================
+
+  ------------------------------------------------------------
+  ИДЕНТИФИКАТОР ГРУППЫ (group_ids)
+  ------------------------------------------------------------
+  Описание: Ключ группировки в TimeSeriesDataSet. TFT обучается отдельно по каждой станции.
+  Колонок: 1
+
+  Переменная                     Тип              Уник.  Пропуски  Диапазон / значения
+  ------------------------------ ---------------- ------ --------- --------------------------------------
+  station_id                     int64                 5         0 [0, 4]
+
+  Предобработка:
+    station_id: Строка. Ключ группировки для TimeSeriesDataSet.
+
+  ------------------------------------------------------------
+  НЕ ВХОДЯТ В МОДЕЛЬ
+  ------------------------------------------------------------
+  Описание: Читаемые идентификаторы или избыточные суммарные переменные.
+  Колонок: 3
+
+  Переменная                     Тип              Уник.  Пропуски  Диапазон / значения
+  ------------------------------ ---------------- ------ --------- --------------------------------------
+  station_name                   object                5         0 Татнефть-АЗС-001, Татнефть-АЗС-002, Татнефть-АЗС-003, Татнефть-АЗС-004, ...
+  timestamp                      datetime64[ns]     8760         0 2023-01-01 -- 2023-12-31
+  total_fuel_sales               float64             589         0 [0, 776]
+
+  Предобработка:
+    station_name: Строка. Только для читаемости, в модель не входит.
+    timestamp: datetime. Используется для построения time_idx (cumcount).
+    total_fuel_sales: Линейная сумма 7 целевых переменных. Избыточна для модели.
+
+  ------------------------------------------------------------
+  СТАТИЧЕСКИЕ КАТЕГОРИАЛЬНЫЕ (static_categoricals)
+  ------------------------------------------------------------
+  Описание: Характеристики АЗС, не меняющиеся во времени (тип дороги, направление, размер).
+  TFT кодирует через Entity Embedding (learnable) — Section 4.1 статьи.
+  Предобработка: LabelEncoder -> целое число -> embedding-слой.
+  Колонок: 3
+
+  Переменная                     Тип              Уник.  Пропуски  Диапазон / значения
+  ------------------------------ ---------------- ------ --------- --------------------------------------
+  road_type                      object                2         0 федеральная трасса, региональная дорог
+  direction                      object                3         0 транзит, из_города, в_город
+  settlement_size                object                3         0 сельская местность, средний город (50-, мегаполис (>1млн)
+
+  Предобработка:
+    road_type: Label Encoding -> road_type_enc. TFT строит embedding-слой.
+    direction: Label Encoding -> direction_enc.
+    settlement_size: Label Encoding -> settlement_size_enc.
+
+  ------------------------------------------------------------
+  СТАТИЧЕСКИЕ ВЕЩЕСТВЕННЫЕ (static_reals)
+  ------------------------------------------------------------
+  Описание: Числовые характеристики АЗС из паспорта (metadata).
+  TFT использует через Static Variable Selection Network.
+  Предобработка: Z-score per-station. Бинарные (has_*) — без нормализации.
+  Колонок: 27
+
+  Переменная                     Тип              Уник.  Пропуски  Диапазон / значения
+  ------------------------------ ---------------- ------ --------- --------------------------------------
+  distance_to_city_km            float64               5         0 [3.2, 40.6]
+  total_pumps                    int64                 3         0 [12, 23]
+  shop_area_m2                   int64                 3         0 [100, 200]
+  num_pumps_AI92                 int64                 4         0 [2, 6]
+  num_pumps_AI95                 int64                 4         0 [2, 6]
+  num_pumps_AI98                 int64                 3         0 [0, 3]
+  num_pumps_DT_EURO              int64                 3         0 [1, 4]
+  num_pumps_DT_TANEKO            int64                 3         0 [0, 2]
+  num_pumps_DT_SUMMER            int64                 3         0 [1, 3]
+  num_pumps_DT_WINTER            int64                 3         0 [1, 3]
+  has_car_wash                   int64                 2         0 [0, 1]
+  has_tire_service               int64                 2         0 [0, 1]
+  has_cafe                       int64                 1         0 [1, 1]
+  has_hotel                      int64                 2         0 [0, 1]
+  has_shop                       int64                 1         0 [1, 1]
+  competitors_within_5km         int64                 3         0 [0, 2]
+  customer_loyalty_score         float64               5         0 [52.1, 79.8]
+  staff_quality_score            float64               5         0 [71.8, 97]
+  staff_engagement_score         float64               5         0 [55.6, 87.3]
+  corporate_customer_ratio       float64               5         0 [0.19, 0.32]
+  base_price_AI92                float64               5         0 [47.6, 50.9]
+  base_price_AI95                float64               5         0 [50.3, 54.5]
+  base_price_AI98                float64               5         0 [55.3, 58.5]
+  base_price_DT_EURO             float64               5         0 [50.5, 52.4]
+  base_price_DT_TANEKO           float64               5         0 [52.1, 54.2]
+  base_price_DT_SUMMER           float64               4         0 [49.7, 51.9]
+  base_price_DT_WINTER           float64               5         0 [51.5, 54.1]
+
+  Предобработка:
+    distance_to_city_km: Паспортные данные АЗС. Не изменяются.
+    total_pumps: Паспортные данные АЗС. Не изменяются.
+    shop_area_m2: Паспортные данные АЗС. Не изменяются.
+    num_pumps_AI92: Паспортные данные АЗС. Не изменяются.
+    num_pumps_AI95: Паспортные данные АЗС. Не изменяются.
+    num_pumps_AI98: Паспортные данные АЗС. Не изменяются.
+    num_pumps_DT_EURO: Паспортные данные АЗС. Не изменяются.
+    num_pumps_DT_TANEKO: Паспортные данные АЗС. Не изменяются.
+    num_pumps_DT_SUMMER: Паспортные данные АЗС. Не изменяются.
+    num_pumps_DT_WINTER: Паспортные данные АЗС. Не изменяются.
+    has_car_wash: Паспортные данные АЗС. Бинарный 0/1. Не изменяется.
+    has_tire_service: Паспортные данные АЗС. Бинарный 0/1. Не изменяется.
+    has_cafe: Паспортные данные АЗС. Бинарный 0/1. Не изменяется.
+    has_hotel: Паспортные данные АЗС. Бинарный 0/1. Не изменяется.
+    has_shop: Паспортные данные АЗС. Бинарный 0/1. Не изменяется.
+    competitors_within_5km: Паспортные данные АЗС. Не изменяются.
+    customer_loyalty_score: Паспортные данные АЗС. Не изменяются.
+    staff_quality_score: Паспортные данные АЗС. Не изменяются.
+    staff_engagement_score: Паспортные данные АЗС. Не изменяются.
+    corporate_customer_ratio: Паспортные данные АЗС. Не изменяются.
+    base_price_AI92: Паспортные данные АЗС. Не изменяются.
+    base_price_AI95: Паспортные данные АЗС. Не изменяются.
+    base_price_AI98: Паспортные данные АЗС. Не изменяются.
+    base_price_DT_EURO: Паспортные данные АЗС. Не изменяются.
+    base_price_DT_TANEKO: Паспортные данные АЗС. Не изменяются.
+    base_price_DT_SUMMER: Паспортные данные АЗС. Не изменяются.
+    base_price_DT_WINTER: Паспортные данные АЗС. Не изменяются.
+
+  ------------------------------------------------------------
+  ИЗВЕСТНЫЕ БУДУЩИЕ КАТЕГОРИАЛЬНЫЕ (known_cats)
+  ------------------------------------------------------------
+  Описание: Категориальные признаки, известные заранее (сезон, день недели, праздник).
+  TFT подаёт в encoder И decoder — позволяет учесть будущий контекст.
+  Предобработка: NaN -> семантическое значение. LabelEncoder -> embedding.
+  Колонок: 4
+
+  Переменная                     Тип              Уник.  Пропуски  Диапазон / значения
+  ------------------------------ ---------------- ------ --------- --------------------------------------
+  season                         object                4         0 winter, spring, summer, autumn
+  day_name                       object                7         0 Sunday, Monday, Tuesday, Wednesday, ...
+  ad_channel                     object                7         0 ТВ, нет_рекламы, email, соцсети, ...
+  holiday_name                   object               10         0 Новый год, нет_праздника, Рождество, День защитника Оте, ...
+
+  Предобработка:
+    season: Label Encoding -> season_enc.
+    day_name: Label Encoding -> day_name_enc.
+    ad_channel: NaN -> 'нет_рекламы'. Label Encoding -> ad_channel_enc.
+    holiday_name: NaN -> 'нет_праздника'. Label Encoding -> holiday_name_enc.
+
+  ------------------------------------------------------------
+  ИЗВЕСТНЫЕ БУДУЩИЕ ВЕЩЕСТВЕННЫЕ (known_reals)
+  ------------------------------------------------------------
+  Описание: Числовые признаки, известные заранее (час, цены, акции, флаги дней).
+  TFT подаёт в encoder И decoder.
+  Предобработка: Z-score. Циклические (hour, dow, month, woy) -> sin/cos.
+  Бинарные (is_weekend, промо-флаги) — без нормализации.
+  Колонок: 20
+
+  Переменная                     Тип              Уник.  Пропуски  Диапазон / значения
+  ------------------------------ ---------------- ------ --------- --------------------------------------
+  hour                           int64                24         0 [0, 23]
+  day_of_week                    int64                 7         0 [0, 6]
+  week_of_year                   int64                52         0 [1, 52]
+  month                          int64                12         0 [1, 12]
+  quarter                        int64                 4         0 [1, 4]
+  is_weekend                     int64                 2         0 [0, 1]
+  is_holiday                     int64                 2         0 [0, 1]
+  is_rush_hour                   int64                 2         0 [0, 1]
+  is_night                       int64                 2         0 [0, 1]
+  promotion_fuel_active          int64                 2         0 [0, 1]
+  promotion_shop_active          int64                 2         0 [0, 1]
+  promotion_cafe_active          int64                 2         0 [0, 1]
+  ad_active                      int64                 2         0 [0, 1]
+  price_AI92                     float64               5         0 [47.6, 50.9]
+  price_AI95                     float64               5         0 [50.3, 54.5]
+  price_AI98                     float64               5         0 [55.3, 58.5]
+  price_DT_EURO                  float64               5         0 [50.5, 52.4]
+  price_DT_TANEKO                float64               5         0 [52.1, 54.2]
+  price_DT_SUMMER                float64               4         0 [49.7, 51.9]
+  price_DT_WINTER                float64               5         0 [51.5, 54.1]
+
+  Предобработка:
+    hour: Z-score. + sin/cos: hour_sin=sin(2pi*hour/24), hour_cos=cos(2pi*hour/24). Циклическое кодирование устраняет разрыв 23:00->00:00.
+    day_of_week: Z-score. + sin/cos: dow_sin=sin(2pi*dow/7), dow_cos=cos(2pi*dow/7).
+    week_of_year: Z-score. + sin/cos (period=52).
+    month: Z-score. + sin/cos (period=12).
+    quarter: Z-score.
+    is_weekend: Бинарный 0/1. Не нормализуется.
+    is_holiday: Бинарный 0/1. Не нормализуется.
+    is_rush_hour: Бинарный 0/1. Не нормализуется.
+    is_night: Бинарный 0/1. Не нормализуется.
+    promotion_fuel_active: Бинарный 0/1. Акции планируются заранее.
+    promotion_shop_active: Бинарный 0/1.
+    promotion_cafe_active: Бинарный 0/1.
+    ad_active: Бинарный 0/1.
+    price_AI92: Z-score per-station. Цена устанавливается заранее.
+    price_AI95: Z-score per-station.
+    price_AI98: Z-score per-station.
+    price_DT_EURO: Z-score per-station.
+    price_DT_TANEKO: Z-score per-station.
+    price_DT_SUMMER: Z-score per-station.
+    price_DT_WINTER: Z-score per-station.
+
+  ------------------------------------------------------------
+  НАБЛЮДАЕМЫЕ ПРОШЛЫЕ ВЕЩЕСТВЕННЫЕ (unknown_reals)
+  ------------------------------------------------------------
+  Описание: Наблюдаемые переменные — доступны только в прошлом (погода, трафик).
+  TFT использует только в encoder (168 часов ретроспективы).
+  Предобработка: Winsorization IQR + Z-score per-station.
+  weather_condition: LabelEncoder -> float (через prescaler в TFT).
+  Колонок: 19
+
+  Переменная                     Тип              Уник.  Пропуски  Диапазон / значения
+  ------------------------------ ---------------- ------ --------- --------------------------------------
+  temperature                    float64             615         0 [-35, 35]
+  weather_condition              object                5         0 снег, ясно, облачно, дождь, ...
+  precipitation_mm               float64             113         0 [0, 18.4]
+  visibility_km                  float64             136         0 [0.2, 15]
+  wind_speed_ms                  float64             151         0 [0, 15]
+  is_snow                        int64                 2         0 [0, 1]
+  is_rain                        int64                 2         0 [0, 1]
+  is_fog                         int64                 2         0 [0, 1]
+  traffic_Passengers_cars        int64               620         0 [4, 735]
+  traffic_Truck_short            int64                99         0 [1, 106]
+  traffic_Truck                  int64               168         0 [1, 186]
+  traffic_Truck_long             int64               147         0 [0, 159]
+  traffic_Transporter            int64                52         0 [0, 53]
+  traffic_Undefined              int64                27         0 [0, 26]
+  total_traffic                  int64              1014         0 [7, 1.27e+03]
+  shop_total_revenue             float64            1786         0 [0, 3.56e+03]
+  competitor_price_AI92          float64              83         0 [45.2, 53.4]
+  competitor_price_AI95          float64              95         0 [47.8, 57.2]
+  competitor_price_DT            float64              71         0 [48, 55]
+
+  Предобработка:
+    temperature: Z-score per-station. Winsorization IQR.
+    weather_condition: Label Encoding -> weather_condition_enc (float). Используется как вещественное — TFT обрабатывает через prescaler.
+    precipitation_mm: Z-score per-station. Winsorization IQR.
+    visibility_km: Z-score per-station.
+    wind_speed_ms: Z-score per-station. Winsorization IQR.
+    is_snow: Бинарный 0/1. Не нормализуется.
+    is_rain: Бинарный 0/1.
+    is_fog: Бинарный 0/1.
+    traffic_Passengers_cars: Z-score per-station. Winsorization IQR.
+    traffic_Truck_short: Z-score per-station. Winsorization IQR.
+    traffic_Truck: Z-score per-station. Winsorization IQR.
+    traffic_Truck_long: Z-score per-station. Winsorization IQR.
+    traffic_Transporter: Z-score per-station. Winsorization IQR.
+    traffic_Undefined: Z-score per-station.
+    total_traffic: Z-score per-station. Является суммой компонент трафика. VSN автоматически снизит вес при высокой коллинеарности.
+    shop_total_revenue: log1p -> _orig сохраняется. Z-score НЕ применяется (TorchNormalizer).
+    competitor_price_AI92: Z-score per-station. Winsorization IQR.
+    competitor_price_AI95: Z-score per-station. Winsorization IQR.
+    competitor_price_DT: Z-score per-station. Winsorization IQR.
+
+  ------------------------------------------------------------
+  ЦЕЛЕВЫЕ ПЕРЕМЕННЫЕ (target + unknown_reals)
+  ------------------------------------------------------------
+  Описание: 12 переменных (7 видов топлива + 5 категорий магазина) — одновременно цель прогноза И observed past.
+  TFT статья (Section 3): target является частью observed inputs.
+  Предобработка: log1p (skew устранён) + TorchNormalizer(robust) внутри TFT.
+  Z-score в eda_preprocessing.py НЕ применяется к этим колонкам.
+  _orig-колонки сохраняются для обратного преобразования прогнозов.
+  Колонок: 12
+
+  Переменная                     Тип              Уник.  Пропуски  Диапазон / значения
+  ------------------------------ ---------------- ------ --------- --------------------------------------
+  shop_напитки                   float64             318         0 [0, 444]
+  shop_закуски                   float64             586         0 [0, 897]
+  shop_автотовары                float64             804         0 [0, 1.32e+03]
+  shop_кофе                      float64             589         0 [0, 799]
+  shop_табак                     float64             209         0 [0, 261]
+  sales_AI92                     float64             234         0 [0, 264]
+  sales_AI95                     float64             263         0 [0, 301]
+  sales_AI98                     float64              73         0 [0, 75]
+  sales_DT_EURO                  float64              73         0 [0, 75]
+  sales_DT_TANEKO                float64              24         0 [0, 23]
+  sales_DT_SUMMER                float64              38         0 [0, 38]
+  sales_DT_WINTER                float64              24         0 [0, 27]
+
+  Предобработка:
+    shop_напитки: log1p -> _orig. TorchNormalizer(robust) внутри TFT. Z-score не применяется.
+    shop_закуски: log1p -> _orig. TorchNormalizer(robust).
+    shop_автотовары: log1p -> _orig. TorchNormalizer(robust).
+    shop_кофе: log1p -> _orig. TorchNormalizer(robust).
+    shop_табак: log1p -> _orig. TorchNormalizer(robust).
+    sales_AI92: log1p -> _orig. TorchNormalizer(robust) внутри TFT. Z-score не применяется.
+    sales_AI95: log1p -> _orig. TorchNormalizer(robust).
+    sales_AI98: log1p -> _orig. TorchNormalizer(robust).
+    sales_DT_EURO: log1p -> _orig. TorchNormalizer(robust).
+    sales_DT_TANEKO: log1p -> _orig. TorchNormalizer(robust).
+    sales_DT_SUMMER: log1p -> _orig. TorchNormalizer(robust).
+    sales_DT_WINTER: log1p -> _orig. TorchNormalizer(robust).
+
+======================================================================
+ЦИКЛИЧЕСКОЕ КОДИРОВАНИЕ (решение проблемы 23:00 -> 00:00)
+======================================================================
+  Проблема: числовой признак hour=23 и hour=0 далеки (разница 23),
+  хотя физически соседние. То же для day_of_week (6->0), month (12->1).
+
+  Решение: sin/cos-кодирование проецирует признак на единичную окружность:
+    hour_sin = sin(2*pi*hour/24)
+    hour_cos = cos(2*pi*hour/24)
+  => cos(hour_sin, hour_cos, at hour=23) ~= cos(..., at hour=0)
+
+  Дополнительно: LSTM-компонент TFT обрабатывает последовательность
+  пошагово по time_idx, поэтому он «видит» соседство шагов напрямую.
+
+  Применяется к:
+    hour            period=24  -> hour_sin, hour_cos
+    day_of_week     period=7  -> day_of_week_sin, day_of_week_cos
+    month           period=12  -> month_sin, month_cos
+    week_of_year    period=52  -> week_of_year_sin, week_of_year_cos
+
+======================================================================
+КОЛЛИНЕАРНОСТЬ И ИЗБЫТОЧНОСТЬ
+======================================================================
+  total_fuel_sales = sum(sales_*) — исключена из модели полностью.
+  total_traffic = sum(traffic_*) — оставлена: VSN снизит вес при коллинеарности.
+  base_price_* vs price_* — разные: base_price из паспорта (константа),
+    price_* — текущая цена с учётом акций (меняется).
+  is_snow/is_rain/is_fog vs weather_condition — частичное перекрытие,
+    но weather_condition кодирует градацию (ясно/облачно/туман/дождь/снег).
+
+======================================================================
+ИТОГ: ВХОДЫ TFT-МОДЕЛИ
+======================================================================
+  Encoder length  : 168 ч (7 суток ретроспективы)
+  Decoder length  : 24 ч (горизонт прогноза)
+  Целевых выходов : 12
+
+  static_categoricals                          : 3 колонок
+  static_reals                                 : 27 колонок
+  time_varying_known_categoricals              : 4 колонок
+  time_varying_known_reals                     : 20 колонок + sin/cos
+  time_varying_unknown_reals                   : 19 колонок
+  target                                       : 12 колонок
