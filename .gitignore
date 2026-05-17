@@ -1,0 +1,22 @@
+# Виртуальное окружение
+venv/
+
+# Python байткод
+__pycache__/
+*.pyc
+*.pyo
+
+# Обработанные данные (генерируются скриптами)
+data/
+
+# TFT — модель и артефакты обучения
+tft/checkpoints/
+tft/logs/
+tft/model.ckpt
+tft/*.pkl
+
+# Сгенерированные отчёты
+reports/
+
+# Исходные материалы из диалога с Claude (не код)
+SourceDataForWork/Generation/
