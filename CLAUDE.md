@@ -168,4 +168,4 @@ tensorboard --logdir tft/logs
 8. Переобучение TFT с 12 целями → tft/model.ckpt
    Порядок: eda_preprocessing.py → prepare_dataset.py → train.py
 9. Инференс (tft/predict.py) → data/predictions.csv + data/metrics.csv
-10. Дашборд прогнозов (dashboard/forecast_dashboard.py)
+10. ✅ Дашборд прогнозов (dashboard/forecast_dashboard.py) — 5 вкладок: прогноз, метрики, факторный анализ, интерпретация TFT, сценарий & рекомендации
