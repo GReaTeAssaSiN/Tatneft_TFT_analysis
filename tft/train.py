@@ -32,21 +32,21 @@ if torch.cuda.is_available():
     ACCELERATOR = "gpu"
     DEVICE_NAME = torch.cuda.get_device_name(0)
     BATCH_SIZE = 64
-    EPOCHS = 30
+    EPOCHS = 80
     HIDDEN_SIZE = 128
     ATTN_HEADS = 4
 else:
     ACCELERATOR = "cpu"
     DEVICE_NAME = "CPU"
     BATCH_SIZE = 32
-    EPOCHS = 20
+    EPOCHS = 50
     HIDDEN_SIZE = 64
     ATTN_HEADS = 2
 
-LEARNING_RATE = 1e-3
-DROPOUT = 0.1
-HIDDEN_CONTINUOUS = 32
-GRADIENT_CLIP = 0.1
+LEARNING_RATE = 3e-4
+DROPOUT = 0.15
+HIDDEN_CONTINUOUS = 64
+GRADIENT_CLIP = 1.0
 
 # ============================================================
 # Параметры обучения
@@ -126,7 +126,7 @@ tft = TemporalFusionTransformer.from_dataset(
     hidden_continuous_size=HIDDEN_CONTINUOUS,
     loss=QuantileLoss(),
     log_interval=10,
-    reduce_on_plateau_patience=3,
+    reduce_on_plateau_patience=5,
 )
 
 total_params = sum(p.numel() for p in tft.parameters())
@@ -149,7 +149,7 @@ checkpoint_cb = ModelCheckpoint(
 
 early_stop_cb = EarlyStopping(
     monitor="val_loss",
-    patience=5,
+    patience=12,
     mode="min",
     verbose=True,
 )
