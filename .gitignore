@@ -18,3 +18,12 @@ tft/*.pkl
 
 # Исходные материалы из диалога с Claude (не код)
 SourceDataForWork/Generation/
+
+# Вспомогательные файлы задания (не нужны в репо)
+SourceDataForWork/Задание.docx
+SourceDataForWork/Небольшое примечание.txt
+
+# Temp-файлы Microsoft Office (~$...)
+~$*.docx
+~$*.xlsx
+~$*.pptx
