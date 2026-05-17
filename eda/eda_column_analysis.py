@@ -500,42 +500,12 @@ TFT_ROLES = {
 }
 
 # ============================================================
-# Построение отчёта
+# Построение Markdown-отчёта
 # ============================================================
+from collections import Counter
+
 lines = []
 
-
-def section(title):
-    lines.append("")
-    lines.append("=" * 70)
-    lines.append(title)
-    lines.append("=" * 70)
-
-
-def subsection(title):
-    lines.append("")
-    lines.append("  " + "-" * 60)
-    lines.append("  " + title)
-    lines.append("  " + "-" * 60)
-
-
-section("АНАЛИЗ ПЕРЕМЕННЫХ ДЛЯ TFT-МОДЕЛИ")
-lines.append(f"  Файл         : data/merged_data.csv")
-lines.append(f"  Строк        : {df.shape[0]}")
-lines.append(f"  Колонок      : {df.shape[1]}")
-lines.append(f"  Период       : {df['timestamp'].min().date()} -- {df['timestamp'].max().date()}")
-lines.append(f"  Станций      : {df['station_id'].nunique()}")
-lines.append(f"  Часов/станцию: {df.groupby('station_id').size().unique()[0]}")
-
-# ── Сводная таблица по TFT ролям ─────────────────────────────
-section("СВОДНАЯ ТАБЛИЦА: TFT-РОЛЬ -> КОЛИЧЕСТВО ПЕРЕМЕННЫХ")
-
-from collections import Counter
-role_counts = Counter(v["tft_input"] for v in TFT_ROLES.values())
-for role, cnt in sorted(role_counts.items(), key=lambda x: -x[1]):
-    lines.append(f"  {role:45s}: {cnt} колонок")
-
-# ── Подробное описание по группам ────────────────────────────
 TFT_GROUPS_ORDER = [
     "group_ids",
     "не подаётся в модель",
@@ -548,171 +518,196 @@ TFT_GROUPS_ORDER = [
 ]
 
 GROUP_LABELS = {
-    "group_ids":                             "ИДЕНТИФИКАТОР ГРУППЫ (group_ids)",
-    "не подаётся в модель":                  "НЕ ВХОДЯТ В МОДЕЛЬ",
-    "static_categoricals":                   "СТАТИЧЕСКИЕ КАТЕГОРИАЛЬНЫЕ (static_categoricals)",
-    "static_reals":                          "СТАТИЧЕСКИЕ ВЕЩЕСТВЕННЫЕ (static_reals)",
-    "time_varying_known_categoricals":       "ИЗВЕСТНЫЕ БУДУЩИЕ КАТЕГОРИАЛЬНЫЕ (known_cats)",
-    "time_varying_known_reals":              "ИЗВЕСТНЫЕ БУДУЩИЕ ВЕЩЕСТВЕННЫЕ (known_reals)",
-    "time_varying_unknown_reals":            "НАБЛЮДАЕМЫЕ ПРОШЛЫЕ ВЕЩЕСТВЕННЫЕ (unknown_reals)",
-    "target + time_varying_unknown_reals":   "ЦЕЛЕВЫЕ ПЕРЕМЕННЫЕ (target + unknown_reals)",
+    "group_ids":                            "Идентификатор группы (`group_ids`)",
+    "не подаётся в модель":                 "Не входят в модель",
+    "static_categoricals":                  "Статические категориальные (`static_categoricals`)",
+    "static_reals":                         "Статические вещественные (`static_reals`)",
+    "time_varying_known_categoricals":      "Известные будущие категориальные (`known_cats`)",
+    "time_varying_known_reals":             "Известные будущие вещественные (`known_reals`)",
+    "time_varying_unknown_reals":           "Наблюдаемые прошлые вещественные (`unknown_reals`)",
+    "target + time_varying_unknown_reals":  "Целевые переменные (`target + unknown_reals`)",
 }
 
 GROUP_DESCRIPTIONS = {
     "group_ids": (
-        "Ключ группировки в TimeSeriesDataSet. TFT обучается отдельно по каждой станции."
+        "Ключ группировки в `TimeSeriesDataSet`. TFT обучается отдельно по каждой станции."
     ),
     "не подаётся в модель": (
         "Читаемые идентификаторы или избыточные суммарные переменные."
     ),
     "static_categoricals": (
-        "Характеристики АЗС, не меняющиеся во времени (тип дороги, направление, размер).\n"
-        "  TFT кодирует через Entity Embedding (learnable) — Section 4.1 статьи.\n"
-        "  Предобработка: LabelEncoder -> целое число -> embedding-слой."
+        "Характеристики АЗС, не меняющиеся во времени (тип дороги, направление, размер). "
+        "TFT кодирует через Entity Embedding (learnable) — Section 4.1 статьи. "
+        "Предобработка: `LabelEncoder` → целое число → embedding-слой."
     ),
     "static_reals": (
-        "Числовые характеристики АЗС из паспорта (metadata).\n"
-        "  TFT использует через Static Variable Selection Network.\n"
-        "  Предобработка: Z-score per-station. Бинарные (has_*) — без нормализации."
+        "Числовые характеристики АЗС из паспорта (metadata). "
+        "TFT использует через Static Variable Selection Network. "
+        "Нормализация **не применяется** — паспортные данные не меняются, "
+        "исключены из Z-score нормализации (`static_skip` в `eda_preprocessing.py`)."
     ),
     "time_varying_known_categoricals": (
-        "Категориальные признаки, известные заранее (сезон, день недели, праздник).\n"
-        "  TFT подаёт в encoder И decoder — позволяет учесть будущий контекст.\n"
-        "  Предобработка: NaN -> семантическое значение. LabelEncoder -> embedding."
+        "Категориальные признаки, известные заранее (сезон, день недели, праздник). "
+        "TFT подаёт в encoder **и** decoder — позволяет учесть будущий контекст. "
+        "Предобработка: `NaN` → семантическое значение, `LabelEncoder` → embedding."
     ),
     "time_varying_known_reals": (
-        "Числовые признаки, известные заранее (час, цены, акции, флаги дней).\n"
-        "  TFT подаёт в encoder И decoder.\n"
-        "  Предобработка: Z-score. Циклические (hour, dow, month, woy) -> sin/cos.\n"
-        "  Бинарные (is_weekend, промо-флаги) — без нормализации."
+        "Числовые признаки, известные заранее (час, цены, акции, флаги дней). "
+        "TFT подаёт в encoder **и** decoder. "
+        "Предобработка: Z-score. Циклические (hour, dow, month, woy) → sin/cos. "
+        "Бинарные (is_weekend, промо-флаги) — без нормализации."
     ),
     "time_varying_unknown_reals": (
-        "Наблюдаемые переменные — доступны только в прошлом (погода, трафик).\n"
-        "  TFT использует только в encoder (168 часов ретроспективы).\n"
-        "  Предобработка: Winsorization IQR + Z-score per-station.\n"
-        "  weather_condition: LabelEncoder -> float (через prescaler в TFT)."
+        "Наблюдаемые переменные — доступны только в прошлом (погода, трафик). "
+        "TFT использует **только в encoder** (168 часов ретроспективы). "
+        "Предобработка: Winsorization IQR + Z-score per-station. "
+        "`weather_condition`: LabelEncoder → float (через prescaler в TFT)."
     ),
     "target + time_varying_unknown_reals": (
-        "12 переменных (7 видов топлива + 5 категорий магазина) — одновременно цель прогноза И observed past.\n"
-        "  TFT статья (Section 3): target является частью observed inputs.\n"
-        "  Предобработка: log1p (skew устранён) + TorchNormalizer(robust) внутри TFT.\n"
-        "  Z-score в eda_preprocessing.py НЕ применяется к этим колонкам.\n"
-        "  _orig-колонки сохраняются для обратного преобразования прогнозов."
+        "12 переменных (7 топливо + 5 магазин) — **одновременно цель прогноза и observed past**. "
+        "TFT статья (Section 3): target является частью observed inputs. "
+        "Предобработка: log1p (skew устранён) + `TorchNormalizer(robust)` внутри TFT. "
+        "Z-score в `eda_preprocessing.py` **не применяется**. "
+        "`_orig`-колонки сохраняются для обратного преобразования прогнозов."
     ),
 }
 
-section("ОПИСАНИЕ ГРУПП ПЕРЕМЕННЫХ")
+# ── Заголовок ─────────────────────────────────────────────────
+lines.append("# Анализ переменных для TFT-модели")
+lines.append("")
+lines.append(f"**Файл:** `data/merged_data.csv`  ")
+lines.append(f"**Строк:** {df.shape[0]}  ")
+lines.append(f"**Колонок:** {df.shape[1]}  ")
+lines.append(f"**Период:** {df['timestamp'].min().date()} — {df['timestamp'].max().date()}  ")
+lines.append(f"**Станций:** {df['station_id'].nunique()}  ")
+lines.append(f"**Часов/станцию:** {df.groupby('station_id').size().unique()[0]}")
+lines.append("")
+
+# ── Сводная таблица ───────────────────────────────────────────
+lines.append("## Сводная таблица: TFT-роль → количество переменных")
+lines.append("")
+lines.append("| TFT-вход | Колонок (исходных) |")
+lines.append("|---|---|")
+role_counts = Counter(v["tft_input"] for v in TFT_ROLES.values())
+for group_key in TFT_GROUPS_ORDER:
+    cnt = role_counts.get(group_key, 0)
+    if cnt:
+        extra = " (+ 8 sin/cos → 28 в модели)" if group_key == "time_varying_known_reals" else ""
+        lines.append(f"| {GROUP_LABELS[group_key]} | {cnt}{extra} |")
+lines.append("")
+
+# ── Описание по группам ───────────────────────────────────────
+lines.append("## Описание групп переменных")
+lines.append("")
 
 for group_key in TFT_GROUPS_ORDER:
-    group_cols = [
-        col for col, meta in TFT_ROLES.items() if meta["tft_input"] == group_key
-    ]
+    group_cols = [col for col, meta in TFT_ROLES.items() if meta["tft_input"] == group_key]
     if not group_cols:
         continue
 
-    subsection(GROUP_LABELS[group_key])
-    lines.append(f"  Описание: {GROUP_DESCRIPTIONS[group_key]}")
-    lines.append(f"  Колонок: {len(group_cols)}")
+    lines.append(f"### {GROUP_LABELS[group_key]}")
     lines.append("")
-    lines.append(
-        f"  {'Переменная':30s} {'Тип':16s} {'Уник.':6s} {'Пропуски':9s} {'Диапазон / значения'}"
-    )
-    lines.append(f"  {'-'*30} {'-'*16} {'-'*6} {'-'*9} {'-'*38}")
+    lines.append(GROUP_DESCRIPTIONS[group_key])
+    lines.append("")
+    lines.append(f"**Колонок:** {len(group_cols)}")
+    lines.append("")
+
+    # Таблица колонок
+    lines.append("| Переменная | Тип | Уник. | Пропуски | Диапазон / значения | Предобработка |")
+    lines.append("|---|---|---|---|---|---|")
 
     for col in group_cols:
         if col not in df.columns:
-            lines.append(f"  {col:30s} {'?':16s} {'?':6s} {'?':9s} (отсутствует)")
+            lines.append(f"| `{col}` | ? | ? | ? | отсутствует | ? |")
             continue
         dtype = str(df[col].dtype)
-        n_null = df[col].isnull().sum()
-        n_uniq = df[col].nunique()
+        n_null = int(df[col].isnull().sum())
+        n_uniq = int(df[col].nunique())
 
         if df[col].dtype == object:
             vals = [str(v) for v in df[col].dropna().unique().tolist()]
-            short = [v[:18] for v in vals[:4]]
-            range_str = ", ".join(short)
-            if n_uniq > 4:
-                range_str += ", ..."
+            short = [v[:20] for v in vals[:3]]
+            range_str = ", ".join(short) + (", ..." if n_uniq > 3 else "")
         elif pd.api.types.is_datetime64_any_dtype(df[col]):
-            mn = df[col].min()
-            mx = df[col].max()
-            range_str = f"{mn.date()} -- {mx.date()}"
+            range_str = f"{df[col].min().date()} — {df[col].max().date()}"
         else:
-            mn = df[col].min()
-            mx = df[col].max()
-            range_str = f"[{mn:.3g}, {mx:.3g}]"
+            range_str = f"[{df[col].min():.3g}, {df[col].max():.3g}]"
 
-        lines.append(
-            f"  {col:30s} {dtype:16s} {n_uniq:6d} {n_null:9d} {range_str}"
-        )
+        prep = TFT_ROLES[col]["preprocessing"].replace("\n", " ")
+        lines.append(f"| `{col}` | {dtype} | {n_uniq} | {n_null} | {range_str} | {prep} |")
 
-    lines.append(f"\n  Предобработка:")
-    for col in group_cols:
-        prep = TFT_ROLES[col]["preprocessing"]
-        lines.append(f"    {col}: {prep}")
+    lines.append("")
 
-# ── Циклические признаки ─────────────────────────────────────
-section("ЦИКЛИЧЕСКОЕ КОДИРОВАНИЕ (решение проблемы 23:00 -> 00:00)")
+# ── Циклическое кодирование ───────────────────────────────────
+lines.append("## Циклическое кодирование (решение проблемы 23:00 → 00:00)")
+lines.append("")
 lines.append(
-    "  Проблема: числовой признак hour=23 и hour=0 далеки (разница 23),\n"
-    "  хотя физически соседние. То же для day_of_week (6->0), month (12->1).\n"
-    "\n"
-    "  Решение: sin/cos-кодирование проецирует признак на единичную окружность:\n"
-    "    hour_sin = sin(2*pi*hour/24)\n"
-    "    hour_cos = cos(2*pi*hour/24)\n"
-    "  => cos(hour_sin, hour_cos, at hour=23) ~= cos(..., at hour=0)\n"
-    "\n"
-    "  Дополнительно: LSTM-компонент TFT обрабатывает последовательность\n"
-    "  пошагово по time_idx, поэтому он «видит» соседство шагов напрямую."
+    "Числовой признак `hour=23` и `hour=0` далеки (разница 23), хотя физически соседние. "
+    "То же для `day_of_week` (6→0) и `month` (12→1).\n\n"
+    "**Решение:** sin/cos-кодирование проецирует признак на единичную окружность:\n"
+    "```\n"
+    "hour_sin = sin(2π * hour / 24)\n"
+    "hour_cos = cos(2π * hour / 24)\n"
+    "```\n"
+    "Евклидово расстояние между (hour=23) и (hour=0) на окружности минимально."
 )
 lines.append("")
-lines.append("  Применяется к:")
+lines.append("| Признак | Period | Добавляемые колонки |")
+lines.append("|---|---|---|")
 for col, period in CYCLICAL_FEATURES.items():
-    lines.append(f"    {col:15s} period={period}  -> {col}_sin, {col}_cos")
+    lines.append(f"| `{col}` | {period} | `{col}_sin`, `{col}_cos` |")
+lines.append("")
 
-# ── Потенциальные проблемы коллинеарности ───────────────────
-section("КОЛЛИНЕАРНОСТЬ И ИЗБЫТОЧНОСТЬ")
+# ── Коллинеарность ────────────────────────────────────────────
+lines.append("## Коллинеарность и избыточность")
+lines.append("")
 lines.append(
-    "  total_fuel_sales = sum(sales_*) — исключена из модели полностью.\n"
-    "  total_traffic = sum(traffic_*) — оставлена: VSN снизит вес при коллинеарности.\n"
-    "  base_price_* vs price_* — разные: base_price из паспорта (константа),\n"
-    "    price_* — текущая цена с учётом акций (меняется).\n"
-    "  is_snow/is_rain/is_fog vs weather_condition — частичное перекрытие,\n"
-    "    но weather_condition кодирует градацию (ясно/облачно/туман/дождь/снег)."
+    "| Переменная | Решение |\n"
+    "|---|---|\n"
+    "| `total_fuel_sales` | Исключена — линейная сумма 7 целевых, избыточна |\n"
+    "| `total_traffic` | Оставлена — VSN автоматически снизит вес при высокой коллинеарности |\n"
+    "| `base_price_*` vs `price_*` | Разные: `base_price` из паспорта (константа), `price` — текущая цена с акциями |\n"
+    "| `is_snow/rain/fog` vs `weather_condition` | Частичное перекрытие, но `weather_condition` кодирует градацию (ясно/облачно/туман/дождь/снег) |"
 )
+lines.append("")
 
 # ── Итог ─────────────────────────────────────────────────────
-section("ИТОГ: ВХОДЫ TFT-МОДЕЛИ")
+lines.append("## Итог: входы TFT-модели")
+lines.append("")
+lines.append("| Параметр | Значение |")
+lines.append("|---|---|")
+lines.append("| Encoder length | 168 ч (7 суток ретроспективы) |")
+lines.append("| Decoder length | 24 ч (горизонт прогноза) |")
+lines.append(f"| Целевых выходов | {len(TARGET_COLS)} |")
+lines.append("")
+
 role_summary = {
-    "static_categoricals":              [],
-    "static_reals":                     [],
-    "time_varying_known_categoricals":  [],
-    "time_varying_known_reals":         [],
-    "time_varying_unknown_reals":       [],
-    "target":                           TARGET_COLS,
+    "static_categoricals":             [],
+    "static_reals":                    [],
+    "time_varying_known_categoricals": [],
+    "time_varying_known_reals":        [],
+    "time_varying_unknown_reals":      [],
+    "target":                          list(TARGET_COLS),
 }
 for col, meta in TFT_ROLES.items():
     inp = meta["tft_input"]
     if inp in role_summary:
         role_summary[inp].append(col)
 
-lines.append(f"  Encoder length  : 168 ч (7 суток ретроспективы)")
-lines.append(f"  Decoder length  : 24 ч (горизонт прогноза)")
-lines.append(f"  Целевых выходов : {len(TARGET_COLS)}")
-lines.append("")
+lines.append("| TFT-вход | Колонок |")
+lines.append("|---|---|")
 for role, cols in role_summary.items():
-    extra = " + sin/cos" if role == "time_varying_known_reals" else ""
-    lines.append(f"  {role:45s}: {len(cols)} колонок{extra}")
+    extra = " (20 base + 8 sin/cos)" if role == "time_varying_known_reals" else ""
+    lines.append(f"| `{role}` | {len(cols)}{extra} |")
 
 # ============================================================
-# Вывод
+# Сохранение
 # ============================================================
 report = "\n".join(lines)
-print(report)
 
-out_path = "reports/column_analysis.txt"
+out_path = "reports/column_analysis.md"
 with open(out_path, "w", encoding="utf-8") as f:
     f.write(report)
 
-print(f"\nОтчёт сохранён: {out_path}")
+print(f"Отчёт сохранён: {out_path}")
 print("Следующий шаг: python eda/eda_preprocessing.py")
