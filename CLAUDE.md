@@ -79,6 +79,7 @@ FinalWorkDashboard/
 │   ├── dataset_config.pkl      — параметры датасета (encoder/prediction length, списки колонок)
 │   ├── prepare_dataset.py      — подготовка TimeSeriesDataSet → tft/*.pkl
 │   ├── train.py                — обучение TFT → tft/model.ckpt
+│   ├── predict.py              — инференс на декабрь 2023 → data/predictions.csv + data/metrics.csv
 │   ├── checkpoints/            — чекпоинты (лучший, monitor=val_loss)
 │   └── logs/                   — TensorBoard логи (tensorboard --logdir tft/logs)
 │
@@ -87,9 +88,11 @@ FinalWorkDashboard/
 │
 ├── utils/                      — общие утилиты проекта
 │   ├── __init__.py
-│   └── data_utils.py           — load_and_merge, fill_missing, add_cyclical_encoding,
-│                                  get_column_groups, inverse_transform_predictions, load_scalers
-│                                  Константы: TARGET_COLS, LOG_COLS, FILL_MAP, STATIC_REALS, CYCLICAL_FEATURES
+│   ├── data_utils.py           — load_and_merge, fill_missing, add_cyclical_encoding
+│   │                             Константы: TARGET_COLS, LOG_COLS, FILL_MAP, STATIC_REALS,
+│   │                             CYCLICAL_FEATURES, TRAIN_END, VAL_END, TEST_START, TEST_END,
+│   │                             ENCODER_LENGTH, PREDICTION_LENGTH, QUANTILE_LEVELS, Q_MED/Q_LO/Q_HI
+│   └── torch_compat.py         — патч torch.load для PyTorch 2.6 (weights_only=False)
 │
 ├── reports/                    — сгенерированные отчёты
 │   ├── column_analysis.txt     — анализ колонок по группам TFT
@@ -151,7 +154,7 @@ tensorboard --logdir tft/logs
 - EPOCHS: 20 (CPU) / 30 (GPU), EarlyStopping(patience=5)
 - target_normalizer: TorchNormalizer(method="robust") per target col
 - NaNLabelEncoder предобучается на полном df → нет KeyError при val/test
-- torch.load патч для PyTorch 2.6 (weights_only=False при загрузке чекпоинта)
+- torch.load патч для PyTorch 2.6 вынесен в utils/torch_compat.py (импортируется в train.py и predict.py)
 - Авто-резюм обучения с последнего чекпоинта (glob tft/checkpoints/*.ckpt)
 
 ## План работы
@@ -161,7 +164,8 @@ tensorboard --logdir tft/logs
 4. ✅ Подготовка датасета для TFT с sin/cos признаками (tft/prepare_dataset.py)
 5. ✅ Полный аудит кода: переменные, препроцессинг, TFT-конфиг, утилиты, PEP 8
 6. ✅ Расширение TARGET_COLS: +5 категорий магазина (итого 12 целей)
-7. Переобучение TFT с 12 целями → tft/model.ckpt
+7. ✅ Рефакторинг: централизация констант, torch_compat, удаление дублей
+8. Переобучение TFT с 12 целями → tft/model.ckpt
    Порядок: eda_preprocessing.py → prepare_dataset.py → train.py
-8. Инференс (tft/predict.py) → data/predictions.csv + data/metrics.csv
-9. Дашборд прогнозов (dashboard/forecast_dashboard.py)
+9. Инференс (tft/predict.py) → data/predictions.csv + data/metrics.csv
+10. Дашборд прогнозов (dashboard/forecast_dashboard.py)

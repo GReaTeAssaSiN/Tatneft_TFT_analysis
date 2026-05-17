@@ -15,17 +15,19 @@ from pytorch_forecasting.data.encoders import (MultiNormalizer,
                                                TorchNormalizer)
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from utils.data_utils import STATIC_REALS, TARGET_COLS
+from utils.data_utils import (
+    ENCODER_LENGTH,
+    PREDICTION_LENGTH,
+    STATIC_REALS,
+    TARGET_COLS,
+    TRAIN_END,
+    VAL_END,
+)
 
 # ============================================================
 # Параметры окна
 # ============================================================
-ENCODER_LENGTH = 168  # ретроспектива: 7 суток (7 × 24 ч)
-PREDICTION_LENGTH = 24  # горизонт прогноза: 24 часа
 BATCH_SIZE = 64
-
-TRAIN_END = pd.Timestamp("2023-10-31 23:00:00")
-VAL_END = pd.Timestamp("2023-11-30 23:00:00")
 
 # ============================================================
 # Группы переменных TFT

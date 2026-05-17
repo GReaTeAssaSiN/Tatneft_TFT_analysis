@@ -62,11 +62,13 @@ FinalWorkDashboard/
 │   └── tft_report.py            — DOCX отчёт по переменным и препроцессингу
 ├── tft/
 │   ├── prepare_dataset.py  — сборка TimeSeriesDataSet
-│   └── train.py            — обучение TFT → model.ckpt
+│   ├── train.py            — обучение TFT → model.ckpt
+│   └── predict.py          — инференс → predictions.csv + metrics.csv
 ├── dashboard/
 │   └── eda_dashboard.py    — интерактивный EDA дашборд (6 вкладок)
 ├── utils/
-│   └── data_utils.py       — константы и утилиты проекта
+│   ├── data_utils.py       — все константы проекта + утилиты
+│   └── torch_compat.py     — патч torch.load для PyTorch 2.6
 ├── explore_data.py         — JOIN исходных CSV → merged_data.csv
 └── requirements.txt
 ```

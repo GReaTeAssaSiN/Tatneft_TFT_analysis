@@ -6,12 +6,16 @@
 import glob
 import os
 import pickle
+import sys
 
 os.environ["LIGHTNING_DISABLE_REMOTE_TIPS"] = "1"
 
 import warnings
 
 warnings.filterwarnings("ignore")
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+import utils.torch_compat  # noqa: F401 — патч torch.load для PyTorch 2.6
 
 import lightning.pytorch as pl
 import torch
@@ -153,25 +157,6 @@ early_stop_cb = EarlyStopping(
 lr_monitor = LearningRateMonitor(logging_interval="epoch")
 
 tb_logger = TensorBoardLogger("tft/logs", name="tft_model")
-
-# PyTorch 2.6 изменил дефолт weights_only=True, что блокирует классы
-# pytorch_forecasting и numpy при загрузке чекпоинта через Lightning.
-# Патчим torch.load чтобы всегда использовал weights_only=False —
-# безопасно, т.к. чекпоинт создан нами же.
-import torch as _torch
-
-_original_torch_load = _torch.load
-
-
-def _patched_torch_load(
-    f, map_location=None, pickle_module=None, weights_only=True, **kwargs
-):
-    return _original_torch_load(
-        f, map_location=map_location, weights_only=False, **kwargs
-    )
-
-
-_torch.load = _patched_torch_load
 
 # Автоопределение последнего чекпоинта для продолжения обучения
 ckpt_files = sorted(glob.glob("tft/checkpoints/*.ckpt"))

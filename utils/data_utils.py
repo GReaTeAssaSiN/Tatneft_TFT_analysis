@@ -80,6 +80,22 @@ CYCLICAL_FEATURES: Dict[str, int] = {
     "week_of_year": 52,
 }
 
+# Границы сплитов (train / val / test = Jan–Oct / Nov / Dec 2023)
+TRAIN_END = pd.Timestamp("2023-10-31 23:00:00")
+VAL_END = pd.Timestamp("2023-11-30 23:00:00")
+TEST_START = pd.Timestamp("2023-12-01 00:00:00")
+TEST_END = pd.Timestamp("2023-12-31 23:00:00")
+
+# Параметры окна TFT
+ENCODER_LENGTH: int = 168   # ретроспектива: 7 суток (7 × 24 ч)
+PREDICTION_LENGTH: int = 24  # горизонт прогноза: 24 часа
+
+# Квантили QuantileLoss (pytorch-forecasting default)
+QUANTILE_LEVELS = [0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98]
+Q_MED = len(QUANTILE_LEVELS) // 2  # индекс медианы q50 = 3
+Q_LO = 1                            # индекс q10
+Q_HI = -2                           # индекс q90
+
 
 # ============================================================
 # Загрузка и объединение данных

@@ -17,17 +17,15 @@ import pandas as pd
 import torch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from utils.data_utils import TARGET_COLS
-
-# PyTorch 2.6: weights_only=True блокирует классы pytorch_forecasting при загрузке
-_orig_load = torch.load
-
-
-def _safe_load(f, map_location=None, pickle_module=None, weights_only=True, **kw):
-    return _orig_load(f, map_location=map_location, weights_only=False, **kw)
-
-
-torch.load = _safe_load
+import utils.torch_compat  # noqa: F401 — патч torch.load для PyTorch 2.6
+from utils.data_utils import (
+    Q_HI,
+    Q_LO,
+    Q_MED,
+    TARGET_COLS,
+    TEST_END,
+    TEST_START,
+)
 
 from pytorch_forecasting import TemporalFusionTransformer, TimeSeriesDataSet
 
@@ -74,8 +72,7 @@ for col in config["static_cats"] + config["known_cats"]:
 
 # Encoder использует ноябрь как контекст, предсказываем декабрь
 CONTEXT_START = pd.Timestamp("2023-11-01 00:00:00")
-TEST_START = pd.Timestamp("2023-12-01 00:00:00")
-TEST_END = pd.Timestamp("2023-12-31 23:00:00")
+# TEST_START, TEST_END импортированы из utils.data_utils
 
 test_df = df[df["timestamp"] >= CONTEXT_START].copy()
 print(f"\nКонтекст  : {CONTEXT_START.date()} — {test_df['timestamp'].max().date()}")
@@ -119,8 +116,8 @@ if sid_encoder is not None:
     )
 
 n_samples = len(idx_df)
-n_q = preds[0].shape[-1]    # 7 квантилей по умолчанию: [0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98]
-MED = n_q // 2               # медиана q50, индекс 3
+n_q = preds[0].shape[-1]    # 7 квантилей: QUANTILE_LEVELS из data_utils
+# Q_MED, Q_LO, Q_HI импортированы из utils.data_utils
 
 print(f"Сэмплов: {n_samples}, горизонт: {PRED_LEN} ч, квантилей: {n_q}")
 
@@ -170,12 +167,12 @@ h_idx = horizon_arr[mask.values]
 # Добавляем предсказания и доверительные интервалы
 for t_i, col in enumerate(TARGET_COLS):
     arr = pred_np[t_i]                                 # (n_samples, pred_len, n_q)
-    log_med = arr[s_idx, h_idx, MED]
+    log_med = arr[s_idx, h_idx, Q_MED]
     idx_exp[f"{col}_pred"] = np.expm1(np.maximum(log_med, 0.0))
 
     if n_q >= 5:
-        idx_exp[f"{col}_q10"] = np.expm1(np.maximum(arr[s_idx, h_idx, 1], 0.0))
-        idx_exp[f"{col}_q90"] = np.expm1(np.maximum(arr[s_idx, h_idx, -2], 0.0))
+        idx_exp[f"{col}_q10"] = np.expm1(np.maximum(arr[s_idx, h_idx, Q_LO], 0.0))
+        idx_exp[f"{col}_q90"] = np.expm1(np.maximum(arr[s_idx, h_idx, Q_HI], 0.0))
 
 # Для каждого (station, timestamp) берём предсказание с наименьшим горизонтом
 # (1-шаговый роллинговый прогноз — наиболее точный)

@@ -27,15 +27,14 @@ from utils.data_utils import (
     LOG_COLS,
     STATIC_REALS,
     TARGET_COLS,
+    TRAIN_END,
+    VAL_END,
     add_cyclical_encoding,
     fill_missing,
 )
 
 os.makedirs("data", exist_ok=True)
 os.makedirs("tft", exist_ok=True)
-
-TRAIN_END = pd.Timestamp("2023-10-31 23:00:00")
-VAL_END = pd.Timestamp("2023-11-30 23:00:00")
 
 print("=" * 60)
 print("EDA-ПРЕДОБРАБОТКА ДЛЯ TFT")

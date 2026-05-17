@@ -6,8 +6,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import plotly.graph_objects as go
-from utils.data_utils import STATIC_REALS, LOG_COLS
+from utils.data_utils import LOG_COLS, STATIC_REALS, TARGET_COLS
 
 st.set_page_config(
     page_title="Татнефть АЗС — EDA Анализ",
@@ -187,14 +186,13 @@ def load_data():
 
 df = load_data()
 
-FUEL_COLS = ["sales_AI92", "sales_AI95", "sales_AI98",
-             "sales_DT_EURO", "sales_DT_TANEKO", "sales_DT_SUMMER", "sales_DT_WINTER"]
+FUEL_COLS = [c for c in TARGET_COLS if c.startswith("sales_")]
+SHOP_COLS = [c for c in TARGET_COLS if c.startswith("shop_")]
 FUEL_LABELS = {
     "sales_AI92": "АИ-92", "sales_AI95": "АИ-95", "sales_AI98": "АИ-98",
     "sales_DT_EURO": "ДТ Евро+", "sales_DT_TANEKO": "ДТ ТАНЕКО",
-    "sales_DT_SUMMER": "ДТ Летнее", "sales_DT_WINTER": "ДТ Зимнее"
+    "sales_DT_SUMMER": "ДТ Летнее", "sales_DT_WINTER": "ДТ Зимнее",
 }
-SHOP_COLS = ["shop_напитки", "shop_закуски", "shop_автотовары", "shop_кофе", "shop_табак"]
 SHOP_LABELS = {
     "shop_напитки": "Магазин: Напитки", "shop_закуски": "Магазин: Закуски",
     "shop_автотовары": "Магазин: Автотовары", "shop_кофе": "Магазин: Кофе",
