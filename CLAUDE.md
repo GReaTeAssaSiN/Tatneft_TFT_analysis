@@ -158,8 +158,10 @@ tensorboard --logdir tft/logs
 - PREDICTION_LENGTH = 24 ч (горизонт прогноза)
 - hidden_size: 64 (CPU) / 128 (GPU)
 - attention_head_size: 2 (CPU) / 4 (GPU)
-- dropout = 0.1, gradient_clip = 0.1, lr = 1e-3
-- EPOCHS: 20 (CPU) / 30 (GPU), EarlyStopping(patience=5)
+- hidden_continuous_size: 64
+- dropout = 0.15, gradient_clip = 1.0, lr = 3e-4
+- EPOCHS: 50 (CPU) / 80 (GPU), EarlyStopping(patience=12)
+- reduce_on_plateau_patience = 5
 - target_normalizer: TorchNormalizer(method="robust") per target col
 - NaNLabelEncoder предобучается на полном df → нет KeyError при val/test
 - torch.load патч для PyTorch 2.6 вынесен в utils/torch_compat.py (импортируется в train.py и predict.py)
@@ -173,7 +175,10 @@ tensorboard --logdir tft/logs
 5. ✅ Полный аудит кода: переменные, препроцессинг, TFT-конфиг, утилиты, PEP 8
 6. ✅ Расширение TARGET_COLS: +5 категорий магазина (итого 12 целей)
 7. ✅ Рефакторинг: централизация констант, torch_compat, удаление дублей
-8. Переобучение TFT с 12 целями → tft/model.ckpt
+8. Переобучение TFT с 12 целями → tft/model.ckpt (запущено с улучшенными гиперпараметрами)
    Порядок: eda_preprocessing.py → prepare_dataset.py → train.py
-9. Инференс (tft/predict.py) → data/predictions.csv + data/metrics.csv
-10. ✅ Дашборд прогнозов (dashboard/forecast_dashboard.py) — 5 вкладок: прогноз, метрики, факторный анализ, интерпретация TFT, сценарий & рекомендации
+9. ✅ Инференс (tft/predict.py) → data/predictions.csv + data/metrics.csv
+10. ✅ Дашборд прогнозов (dashboard/forecast_dashboard.py) — 5 вкладок: прогноз, метрики,
+    факторный анализ, интерпретация TFT, сценарий & рекомендации
+    · Сценарный анализ: прогноз на декабрь 2023 и январь 2024 (синтетический контекст)
+    · What-if: акции, реклама, цена топлива, выбор АЗС/цели, дата и час начала окна
