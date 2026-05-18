@@ -184,7 +184,14 @@ def load_data():
     df = pd.read_csv("data/merged_data.csv", parse_dates=["timestamp"])
     return df
 
-df = load_data()
+try:
+    df = load_data()
+except Exception:
+    st.error(
+        "Файл `data/merged_data.csv` не найден. "
+        "Выполните: `python explore_data.py`"
+    )
+    st.stop()
 
 FUEL_COLS = [c for c in TARGET_COLS if c.startswith("sales_")]
 SHOP_COLS = [c for c in TARGET_COLS if c.startswith("shop_")]
@@ -232,26 +239,23 @@ st.markdown("""
 stations = sorted(df["station_name"].unique())
 date_min, date_max = df["timestamp"].min().date(), df["timestamp"].max().date()
 
-with st.container():
-    st.markdown('<div class="filter-bar">', unsafe_allow_html=True)
-    fc1, fc2, fc3 = st.columns([2, 3, 2])
-    with fc1:
-        selected_stations = st.multiselect(
-            "Станции", stations, default=stations, placeholder="Все станции"
-        )
-    with fc2:
-        selected_fuels = st.multiselect(
-            "Виды топлива", list(FUEL_LABELS.values()),
-            default=list(FUEL_LABELS.values()), placeholder="Все виды топлива"
-        )
-    with fc3:
-        date_range = st.date_input(
-            "Период", value=(date_min, date_max),
-            min_value=date_min, max_value=date_max
-        )
-    st.markdown('</div>', unsafe_allow_html=True)
+fc1, fc2, fc3 = st.columns([2, 3, 2])
+with fc1:
+    selected_stations = st.multiselect(
+        "Станции", stations, default=stations, placeholder="Все станции"
+    )
+with fc2:
+    selected_fuels = st.multiselect(
+        "Виды топлива", list(FUEL_LABELS.values()),
+        default=list(FUEL_LABELS.values()), placeholder="Все виды топлива"
+    )
+with fc3:
+    date_range = st.date_input(
+        "Период", value=(date_min, date_max),
+        min_value=date_min, max_value=date_max
+    )
 
-selected_fuel_cols = [k for k, v in FUEL_LABELS.items() if v in selected_fuels]
+selected_fuel_cols = [k for k, v in FUEL_LABELS.items() if v in selected_fuels] or list(FUEL_LABELS.keys())
 if len(date_range) == 2:
     start_date, end_date = date_range
 else:

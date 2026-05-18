@@ -175,8 +175,7 @@ tensorboard --logdir tft/logs
 5. ✅ Полный аудит кода: переменные, препроцессинг, TFT-конфиг, утилиты, PEP 8
 6. ✅ Расширение TARGET_COLS: +5 категорий магазина (итого 12 целей)
 7. ✅ Рефакторинг: централизация констант, torch_compat, удаление дублей
-8. Переобучение TFT с 12 целями → tft/model.ckpt (запущено с улучшенными гиперпараметрами)
-   Порядок: eda_preprocessing.py → prepare_dataset.py → train.py
+8. ✅ Переобучение TFT с 12 целями → tft/model.ckpt (улучшенные гиперпараметры)
 9. ✅ Инференс (tft/predict.py) → data/predictions.csv + data/metrics.csv
 10. ✅ Дашборд прогнозов (dashboard/forecast_dashboard.py) — 5 вкладок: прогноз, метрики,
     факторный анализ, интерпретация TFT, сценарий & рекомендации

@@ -495,6 +495,12 @@ with tab2:
         "с вероятностью ~80% реальное значение попадёт в эту полосу."
     )
 
+    if metrics_df is None:
+        st.info(
+            "Файл `data/metrics.csv` не найден — метрики точности недоступны. "
+            "Выполните: `python tft/predict.py`"
+        )
+
     if metrics_df is not None:
         sub_m = metrics_df if sel_station == "Все" else metrics_df[metrics_df["station_id"].astype(str) == sel_station]
         sub_m = sub_m[sub_m["target"] == sel_target]
@@ -511,6 +517,78 @@ with tab2:
                     "≤10% отлично · 10–20% хорошо", accent=acc)
             with c4:
                 kpi("Горизонт прогноза", f"{PREDICTION_LENGTH} ч", "шагов на один запуск")
+
+    # ── Общая точность модели ────────────────────────────────────
+    if metrics_df is not None and pred_df is not None:
+        _r2_list = []
+        for _col in TARGET_COLS:
+            _pc, _ac = f"{_col}_pred", f"{_col}_actual"
+            if _pc in pred_df.columns and _ac in pred_df.columns:
+                _s = pred_df[[_pc, _ac]].dropna()
+                if len(_s) > 1:
+                    _ya, _yp = _s[_ac].values, _s[_pc].values
+                    _ss_res = np.sum((_ya - _yp) ** 2)
+                    _ss_tot = np.sum((_ya - _ya.mean()) ** 2)
+                    if _ss_tot > 0:
+                        _r2_list.append(1 - _ss_res / _ss_tot)
+        _r2_med = float(np.nanmedian(_r2_list)) if _r2_list else np.nan
+
+        _vm = metrics_df["MAPE_%"].dropna()
+        _vm = _vm[np.isfinite(_vm)]
+        _med_mape = float(np.median(_vm)) if len(_vm) > 0 else np.nan
+        _med_acc  = 100 - _med_mape if not np.isnan(_med_mape) else np.nan
+        _n_good   = int((_vm <= 15).sum()) if len(_vm) > 0 else 0
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        sec("Точность модели TFT — декабрь 2023")
+        _ka, _kb, _kc = st.columns(3)
+        with _ka:
+            _acc_c = GREEN if (not np.isnan(_med_acc) and _med_acc >= 85) else \
+                     GOLD  if (not np.isnan(_med_acc) and _med_acc >= 80) else RED
+            kpi("Медианная точность",
+                f"{_med_acc:.1f}%" if not np.isnan(_med_acc) else "N/A",
+                "100 − медиана MAPE по всем целям", accent=_acc_c)
+        with _kb:
+            _r2_c = GREEN if (not np.isnan(_r2_med) and _r2_med >= 0.8) else \
+                    GOLD  if (not np.isnan(_r2_med) and _r2_med >= 0.6) else RED
+            kpi("R² модели",
+                f"{_r2_med:.3f}" if not np.isnan(_r2_med) else "N/A",
+                "медиана R² по 12 целевым переменным", accent=_r2_c)
+        with _kc:
+            kpi("Целей с MAPE ≤ 15%", f"{_n_good} / {len(TARGET_COLS)}",
+                "хороший прогноз (MAPE ≤ 15%)",
+                accent=GREEN if _n_good >= len(TARGET_COLS) // 2 else GOLD)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        _acc_df = metrics_df.groupby("target")["MAPE_%"].mean().reset_index()
+        _acc_df["Точность, %"] = (100 - _acc_df["MAPE_%"]).clip(lower=0)
+        _acc_df["Переменная"] = _acc_df["target"].map(TARGET_LABELS).fillna(_acc_df["target"])
+        # NaN MAPE (нет продаж в декабре) — в конец с пометкой
+        _acc_valid = _acc_df[_acc_df["MAPE_%"].notna() & np.isfinite(_acc_df["MAPE_%"])].sort_values("Точность, %")
+        _acc_nan   = _acc_df[_acc_df["MAPE_%"].isna() | ~np.isfinite(_acc_df["MAPE_%"])]
+        _acc_df    = pd.concat([_acc_nan, _acc_valid], ignore_index=True)
+
+        _fig_acc = go.Figure()
+        for _, _arow in _acc_df.iterrows():
+            _is_nan = np.isnan(_arow["MAPE_%"]) or not np.isfinite(_arow["MAPE_%"])
+            _bar_c  = GRAY if _is_nan else (GREEN if _arow["MAPE_%"] <= 10 else GOLD if _arow["MAPE_%"] <= 20 else RED)
+            _bar_x  = 0.0 if _is_nan else _arow["Точность, %"]
+            _txt    = "N/A (нет продаж)" if _is_nan else f"{_arow['Точность, %']:.1f}%"
+            _mape_s = "—" if _is_nan else f"{_arow['MAPE_%']:.1f}%"
+            _fig_acc.add_trace(go.Bar(
+                x=[_bar_x], y=[_arow["Переменная"]],
+                orientation="h", marker_color=_bar_c, showlegend=False,
+                text=[_txt], textposition="outside",
+                textfont=dict(color=TEXT, size=11),
+                hovertemplate=f"<b>{_arow['Переменная']}</b><br>Точность: {_txt}<br>MAPE: {_mape_s}<extra></extra>",
+            ))
+        _fig_acc.add_vline(x=80, line_dash="dash", line_color=GOLD,
+                           annotation_text="80%", annotation_position="top right")
+        _fig_acc.add_vline(x=90, line_dash="dash", line_color=GREEN,
+                           annotation_text="90%", annotation_position="top right")
+        _fig_acc.update_xaxes(range=[0, 110], title="Точность, %")
+        chart_layout(_fig_acc, 360)
+        st.plotly_chart(_fig_acc, width="stretch")
 
     st.markdown("<br>", unsafe_allow_html=True)
     sec(f"Прогноз vs факт — {target_label} · Декабрь 2023")

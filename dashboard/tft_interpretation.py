@@ -122,7 +122,14 @@ col_info3.metric("Целевых переменных", len(TARGET_COLS))
 st.divider()
 
 # ── Данные и настройки интерпретации ──────────────────────────
-prepared_df = load_prepared()
+try:
+    prepared_df = load_prepared()
+except Exception:
+    st.error(
+        "Файл `data/prepared_data.csv` не найден. "
+        "Выполните: `python eda/eda_preprocessing.py`"
+    )
+    st.stop()
 
 # Предопределённые периоды: ключ → (начало периода прогноза, конец)
 # Контекст (168 ч энкодера) добавляется автоматически перед началом периода
