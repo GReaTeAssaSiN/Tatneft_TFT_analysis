@@ -203,16 +203,17 @@ def load_scalers():
 
 
 def build_future_ctx(sc_st, ps, prepared_df_all):
-    """Encoder = last ENCODER_LENGTH real hours; decoder = 24 synthetic rows for ps."""
+    """Encoder = ENCODER_LENGTH real hours before ps; decoder = 24 synthetic rows."""
     st_df = prepared_df_all[prepared_df_all["station_id"] == sc_st].sort_values("timestamp")
-    encoder = st_df.tail(ENCODER_LENGTH).copy()
+    # Encoder must end strictly before ps
+    encoder = st_df[st_df["timestamp"] < ps].tail(ENCODER_LENGTH).copy()
     if encoder.empty:
         return None, "Нет данных по выбранной станции"
 
     template = encoder.iloc[-1].copy()
     last_tidx = int(template["time_idx"])
 
-    # Lookup: season_enc / day_name_enc / holiday_name_enc  by matching known rows
+    # Lookup tables from 2023 data (holidays repeat on same month/day each year)
     season_enc_map = (
         prepared_df_all.groupby(prepared_df_all["timestamp"].dt.month)["season_enc"]
         .first().to_dict()
@@ -221,12 +222,15 @@ def build_future_ctx(sc_st, ps, prepared_df_all):
         prepared_df_all.groupby(prepared_df_all["timestamp"].dt.dayofweek)["day_name_enc"]
         .first().to_dict()
     )
+    # Holiday lookup by (month, day) — take first occurrence in 2023 data
+    hol_enc_map = (
+        prepared_df_all.groupby([
+            prepared_df_all["timestamp"].dt.month,
+            prepared_df_all["timestamp"].dt.day,
+        ])[["is_holiday", "holiday_name_enc"]]
+        .first()
+    )
     no_hol_enc = prepared_df_all[prepared_df_all["is_holiday"] == 0]["holiday_name_enc"].iloc[0]
-    jan1_rows = prepared_df_all[
-        (prepared_df_all["timestamp"].dt.month == 1) &
-        (prepared_df_all["timestamp"].dt.day == 1)
-    ]
-    jan1_hol_enc = jan1_rows["holiday_name_enc"].iloc[0] if not jan1_rows.empty else no_hol_enc
 
     dec_rows = []
     for h in range(PREDICTION_LENGTH):
@@ -255,9 +259,15 @@ def build_future_ctx(sc_st, ps, prepared_df_all):
         row["is_weekend"] = int(dow >= 5)
         row["is_rush_hour"] = int(hr in [7, 8, 9, 17, 18, 19])
         row["is_night"] = int(hr < 6 or hr >= 22)
-        is_hol = int(ts.month == 1 and ts.day == 1)
-        row["is_holiday"] = is_hol
-        row["holiday_name_enc"] = jan1_hol_enc if is_hol else no_hol_enc
+        # Holiday: look up same (month, day) from 2023; fall back to no-holiday
+        hol_key = (m, ts.day)
+        if hol_key in hol_enc_map.index:
+            hol_row = hol_enc_map.loc[hol_key]
+            row["is_holiday"] = int(hol_row["is_holiday"])
+            row["holiday_name_enc"] = hol_row["holiday_name_enc"]
+        else:
+            row["is_holiday"] = 0
+            row["holiday_name_enc"] = no_hol_enc
         for col in TARGET_COLS:
             row[col] = 0.0
         dec_rows.append(row)
@@ -739,7 +749,7 @@ with tab4:
                 "Дата начала 24-часового окна",
                 value=datetime.date(2023, 12, 1),
                 min_value=datetime.date(2023, 12, 1),
-                max_value=datetime.date(2024, 3, 31),
+                max_value=datetime.date(2024, 1, 31),
                 key="sc_date",
             )
         with db:
@@ -749,10 +759,13 @@ with tab4:
                 key="sc_hour",
             )
         is_future_date = sc_date >= datetime.date(2024, 1, 1)
-        if is_future_date:
+        _ps_check = pd.Timestamp(sc_date) + pd.Timedelta(hours=sc_hour)
+        _pe_check = _ps_check + pd.Timedelta(hours=PREDICTION_LENGTH - 1)
+        use_synthetic = is_future_date or _pe_check > prepared_df["timestamp"].max()
+        if use_synthetic:
             st.info(
-                "Прогноз за пределами 2023 г. Энкодер использует реальные данные "
-                "последних 7 суток декабря 2023. Базовая линия недоступна."
+                "Окно прогноза выходит за пределы 2023 г. Энкодер использует реальные "
+                "данные последних 7 суток декабря 2023. Базовая линия недоступна."
             )
 
         ca, cb = st.columns(2)
@@ -803,7 +816,7 @@ with tab4:
                     ps = pd.Timestamp(sc_date) + pd.Timedelta(hours=sc_hour)
                     pe = ps + pd.Timedelta(hours=PREDICTION_LENGTH - 1)
 
-                    if is_future_date:
+                    if use_synthetic:
                         ctx, ctx_err = build_future_ctx(sc_st, ps, prepared_df)
                         if ctx_err:
                             prog.empty()
@@ -867,7 +880,7 @@ with tab4:
                     qm    = len(model.loss.quantiles) // 2
                     arr   = preds[ti].detach().cpu().numpy()
 
-                    ts_lu = (prepared_df[["station_id", "time_idx", "timestamp"]]
+                    ts_lu = (ctx[["station_id", "time_idx", "timestamp"]]
                              .drop_duplicates()
                              .set_index(["station_id", "time_idx"])["timestamp"])
                     rows = []
@@ -894,7 +907,7 @@ with tab4:
                     st_lbl = STATION_LABELS.get(str(sc_st), f"АЗС-{sc_st}")
 
                     base = None
-                    if not is_future_date and pred_df is not None:
+                    if not use_synthetic and pred_df is not None:
                         pn = f"{sc_tgt}_pred"
                         bdf = pred_df[(pred_df["station_id"] == sc_st) &
                                       (pred_df["timestamp"] >= ps) &
@@ -902,15 +915,31 @@ with tab4:
                         if pn in bdf.columns:
                             base = bdf[["timestamp", pn]].rename(columns={pn: "baseline"})
 
-                    # Метрика выше графика
-                    if base is not None and not sc_ts.empty:
-                        ba = base["baseline"].mean()
-                        sa = sc_ts["scenario"].mean()
-                        if ba > 0:
-                            dp = (sa - ba) / ba * 100
-                            st.metric(f"Средний прогноз: {lbl_s}",
-                                      f"{sa:.2f} {u_s}",
-                                      delta=f"{dp:+.1f}% vs базовый")
+                    # ── KPI-карточки: точка входа + среднее + пик ─────────
+                    if not sc_ts.empty:
+                        # Значение в выбранный час (первая точка)
+                        first_row = sc_ts[sc_ts["timestamp"] == ps]
+                        val_at = float(first_row["scenario"].iloc[0]) if not first_row.empty else sc_ts["scenario"].iloc[0]
+                        val_mean = sc_ts["scenario"].mean()
+                        val_peak = sc_ts["scenario"].max()
+                        peak_ts  = sc_ts.loc[sc_ts["scenario"].idxmax(), "timestamp"]
+
+                        km1, km2, km3 = st.columns(3)
+                        with km1:
+                            kpi(f"{sc_date.strftime('%d.%m')} {sc_hour:02d}:00",
+                                f"{val_at:.1f} {u_s}", "прогноз на выбранный час")
+                        with km2:
+                            if base is not None and not base.empty:
+                                ba = base["baseline"].mean()
+                                dp = (val_mean - ba) / ba * 100 if ba > 0 else 0
+                                kpi("Среднее за 24ч", f"{val_mean:.1f} {u_s}",
+                                    f"{dp:+.1f}% vs базовый")
+                            else:
+                                kpi("Среднее за 24ч", f"{val_mean:.1f} {u_s}",
+                                    "сценарный прогноз")
+                        with km3:
+                            kpi("Пик суток", f"{val_peak:.1f} {u_s}",
+                                peak_ts.strftime("%H:%M"))
 
                     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -927,8 +956,10 @@ with tab4:
                     fr.update_layout(
                         title=f"{lbl_s} · {st_lbl} · {sc_date} {sc_hour:02d}:00",
                         xaxis_title="Время", yaxis_title=u_s,
-                        legend=dict(orientation="h", y=1.13),
-                        margin=dict(t=64, b=10, l=0, r=0),
+                        paper_bgcolor=CARD_BG,
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                                    xanchor="left", x=0),
+                        margin=dict(t=60, b=10, l=0, r=0),
                     )
                     st.plotly_chart(fr, width="stretch")
 
