@@ -18,8 +18,12 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from utils.data_utils import (
     ENCODER_LENGTH,
     PREDICTION_LENGTH,
+    STATIC_CATS,
     STATIC_REALS,
     TARGET_COLS,
+    TIME_VARYING_KNOWN_CATS,
+    TIME_VARYING_KNOWN_REALS,
+    TIME_VARYING_UNKNOWN_REALS,
     TRAIN_END,
     VAL_END,
 )
@@ -30,88 +34,11 @@ from utils.data_utils import (
 BATCH_SIZE = 64
 
 # ============================================================
-# Группы переменных TFT
+# Группы переменных TFT — импортированы из utils/data_utils.py
 # ============================================================
-
-# Статические категориальные (из metadata, не меняются во времени)
-STATIC_CATS = [
-    "road_type_enc",
-    "direction_enc",
-    "settlement_size_enc",
-]
-
-# STATIC_REALS и TARGET_COLS импортированы из utils/data_utils.py
-
-# Известные будущие категориальные (можно знать заранее)
-TIME_VARYING_KNOWN_CATS = [
-    "season_enc",
-    "day_name_enc",
-    "ad_channel_enc",
-    "holiday_name_enc",
-]
-
-# Известные будущие вещественные (расписание, цены, акции — планируются заранее)
-TIME_VARYING_KNOWN_REALS = [
-    # Циклические признаки — raw + sin/cos (решает проблему разрыва 23:00->00:00)
-    "hour",
-    "hour_sin",
-    "hour_cos",
-    "day_of_week",
-    "day_of_week_sin",
-    "day_of_week_cos",
-    "week_of_year",
-    "week_of_year_sin",
-    "week_of_year_cos",
-    "month",
-    "month_sin",
-    "month_cos",
-    "quarter",
-    # Бинарные флаги
-    "is_weekend",
-    "is_holiday",
-    "is_rush_hour",
-    "is_night",
-    # Акции и реклама
-    "promotion_fuel_active",
-    "promotion_shop_active",
-    "promotion_cafe_active",
-    "ad_active",
-    # Текущие цены топлива (устанавливаются заранее)
-    "price_AI92",
-    "price_AI95",
-    "price_AI98",
-    "price_DT_EURO",
-    "price_DT_TANEKO",
-    "price_DT_SUMMER",
-    "price_DT_WINTER",
-]
-
-# Наблюдаемые прошлые (нельзя знать заранее)
-TIME_VARYING_UNKNOWN_REALS = [
-    # Погода
-    "temperature",
-    "precipitation_mm",
-    "visibility_km",
-    "wind_speed_ms",
-    "is_snow",
-    "is_rain",
-    "is_fog",
-    "weather_condition_enc",  # категориальное, но TFT принимает как real
-    # Трафик
-    "traffic_Passengers_cars",
-    "traffic_Truck_short",
-    "traffic_Truck",
-    "traffic_Truck_long",
-    "traffic_Transporter",
-    "traffic_Undefined",
-    "total_traffic",
-    # Магазин — только общая выручка (категории перенесены в TARGET_COLS)
-    "shop_total_revenue",
-    # Цены конкурентов
-    "competitor_price_AI92",
-    "competitor_price_AI95",
-    "competitor_price_DT",
-] + TARGET_COLS  # целевые переменные — наблюдаемые прошлые значения
+# STATIC_CATS, STATIC_REALS, TARGET_COLS,
+# TIME_VARYING_KNOWN_CATS, TIME_VARYING_KNOWN_REALS,
+# TIME_VARYING_UNKNOWN_REALS
 
 # ============================================================
 # Загрузка данных

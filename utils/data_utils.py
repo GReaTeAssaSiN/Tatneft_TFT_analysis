@@ -72,6 +72,56 @@ STATIC_REALS: List[str] = [
     "base_price_DT_WINTER",
 ]
 
+# Статические категориальные (из metadata, не меняются во времени)
+STATIC_CATS: List[str] = [
+    "road_type_enc",
+    "direction_enc",
+    "settlement_size_enc",
+]
+
+# Известные будущие категориальные (можно знать заранее: сезон, день, акции)
+TIME_VARYING_KNOWN_CATS: List[str] = [
+    "season_enc",
+    "day_name_enc",
+    "ad_channel_enc",
+    "holiday_name_enc",
+]
+
+# Известные будущие вещественные (расписание, цены, акции — планируются заранее)
+TIME_VARYING_KNOWN_REALS: List[str] = [
+    # Циклические признаки — raw + sin/cos (решает разрыв 23:00 → 00:00)
+    "hour", "hour_sin", "hour_cos",
+    "day_of_week", "day_of_week_sin", "day_of_week_cos",
+    "week_of_year", "week_of_year_sin", "week_of_year_cos",
+    "month", "month_sin", "month_cos",
+    "quarter",
+    # Бинарные флаги
+    "is_weekend", "is_holiday", "is_rush_hour", "is_night",
+    # Акции и реклама
+    "promotion_fuel_active", "promotion_shop_active", "promotion_cafe_active",
+    "ad_active",
+    # Текущие цены топлива (устанавливаются заранее)
+    "price_AI92", "price_AI95", "price_AI98",
+    "price_DT_EURO", "price_DT_TANEKO", "price_DT_SUMMER", "price_DT_WINTER",
+]
+
+# Наблюдаемые прошлые (нельзя знать заранее: погода, трафик, конкуренты)
+# TARGET_COLS добавляются последними — они одновременно цели и лаговые входы энкодера
+TIME_VARYING_UNKNOWN_REALS: List[str] = [
+    # Погода
+    "temperature", "precipitation_mm", "visibility_km", "wind_speed_ms",
+    "is_snow", "is_rain", "is_fog",
+    "weather_condition_enc",
+    # Трафик
+    "traffic_Passengers_cars", "traffic_Truck_short", "traffic_Truck",
+    "traffic_Truck_long", "traffic_Transporter", "traffic_Undefined",
+    "total_traffic",
+    # Магазин — общая выручка (категории вынесены в TARGET_COLS)
+    "shop_total_revenue",
+    # Цены конкурентов
+    "competitor_price_AI92", "competitor_price_AI95", "competitor_price_DT",
+] + TARGET_COLS
+
 # Циклические признаки: имя колонки -> период
 CYCLICAL_FEATURES: Dict[str, int] = {
     "hour": 24,
