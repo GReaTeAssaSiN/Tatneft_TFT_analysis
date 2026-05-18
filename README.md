@@ -1,4 +1,4 @@
-# Прогнозирование продаж АЗС Татнефть — TFT модель + EDA дашборд
+# Прогнозирование продаж АЗС Татнефть — TFT модель + EDA / Прогнозы / Интерпретация
 
 Финальная работа по курсу **Технологии и Архитектуры Больших Данных**.  
 Разработка модели на базе Temporal Fusion Transformer (TFT) для прогнозирования продаж топлива и сопутствующих товаров сети АЗС Татнефть.
@@ -59,11 +59,13 @@ FinalWorkDashboard/
 ├── eda/
 │   ├── eda_column_analysis.py   — анализ переменных по группам TFT
 │   ├── eda_preprocessing.py     — предобработка → prepared_data.csv
-│   └── tft_report.py            — DOCX отчёт по переменным и препроцессингу
+│   └── tft_report.py            — DOCX отчёт: переменные, препроцессинг, TFT
 ├── tft/
 │   ├── prepare_dataset.py  — сборка TimeSeriesDataSet
 │   ├── train.py            — обучение TFT → model.ckpt
-│   └── predict.py          — инференс → predictions.csv + metrics.csv
+│   ├── predict.py          — инференс → predictions.csv + metrics.csv
+│   ├── checkpoints/        — чекпоинты Lightning (создаётся train.py, хранится лучший по val_loss)
+│   └── logs/               — TensorBoard логи (создаётся train.py; просмотр: tensorboard --logdir tft/logs)
 ├── dashboard/
 │   ├── eda_dashboard.py         — интерактивный EDA дашборд (6 вкладок)
 │   ├── forecast_dashboard.py    — дашборд прогнозов TFT (5 вкладок)
@@ -71,6 +73,9 @@ FinalWorkDashboard/
 ├── utils/
 │   ├── data_utils.py       — все константы проекта + утилиты
 │   └── torch_compat.py     — патч torch.load для PyTorch 2.6
+├── reports/                — сгенерированные отчёты (создаются eda_column_analysis.py и tft_report.py)
+│   ├── column_analysis.md  — анализ колонок по группам TFT
+│   └── tft_report.docx     — DOCX: переменные + препроцессинг + TFT + состав тензоров
 ├── explore_data.py         — JOIN исходных CSV → merged_data.csv
 └── requirements.txt
 ```
@@ -87,27 +92,29 @@ pip install -r requirements.txt
 
 # 2. Подготовка данных
 python explore_data.py               # → data/merged_data.csv (43800 × 89)
+
+# 3. EDA дашборд исходных данных (доступен сразу после шага 2)
+streamlit run dashboard/eda_dashboard.py
+
+# 4. Препроцессинг и отчёты
 python eda/eda_column_analysis.py    # → reports/column_analysis.md
 python eda/eda_preprocessing.py      # → data/prepared_data.csv (43800 × 119) + tft/scalers.pkl
 python eda/tft_report.py             # → reports/tft_report.docx
 
-# 3. Обучение TFT
+# 5. Обучение TFT
 python tft/prepare_dataset.py        # → tft/training_dataset.pkl + tft/dataset_config.pkl
 python tft/train.py                  # → tft/model.ckpt
 
-# 4. Инференс (декабрь 2023)
+# 6. Инференс (декабрь 2023)
 python tft/predict.py                # → data/predictions.csv + data/metrics.csv
 
-# 5. EDA дашборд
-streamlit run dashboard/eda_dashboard.py
-
-# 6. Дашборд прогнозов TFT (требует predictions.csv + metrics.csv)
+# 7. Дашборд прогнозов TFT (требует predictions.csv + metrics.csv)
 streamlit run dashboard/forecast_dashboard.py
 
-# 7. Интерпретация TFT (требует tft/model.ckpt)
+# 8. Интерпретация TFT (требует tft/model.ckpt)
 streamlit run dashboard/tft_interpretation.py
 
-# 8. Мониторинг обучения (в отдельном терминале)
+# 9. Мониторинг обучения (в отдельном терминале)
 tensorboard --logdir tft/logs
 ```
 
@@ -127,16 +134,17 @@ tensorboard --logdir tft/logs
 
 ## EDA дашборд
 
+Загружает `data/merged_data.csv` — доступен сразу после `explore_data.py`, до препроцессинга.  
 6 вкладок интерактивного анализа:
 
 | Вкладка | Содержимое |
 |---|---|
-| Обзор | KPI карточки, продажи по станциям и времени |
-| Характеристики АЗС | Тип дороги, размер поселения, расстояния, сервисы, баллы |
+| Паттерны продаж | Продажи по месяцам, часам суток, дням недели, сезонам; тепловая карта час × день |
+| Сравнение АЗС | Суммарные продажи и структура топлива по станциям; динамика по неделям; характеристики АЗС (тип дороги, расстояние, сервисы, баллы) |
 | Погода и трафик | Влияние погоды и типов транспорта на продажи |
 | Акции и реклама | Эффект акций, каналы рекламы, праздники |
-| Временные паттерны | Сезонность, час суток, день недели |
-| Статистика | Распределения целевых (до/после log1p), корреляции, выбросы |
+| Корреляции | Матрица корреляций факторов с продажами топлива; топ факторов по силе влияния |
+| Статистический анализ | Распределения целевых (до/после log1p), корреляции по группам (трафик/погода/цены/акции/магазин), таблица выбросов |
 
 ---
 
@@ -154,6 +162,16 @@ tensorboard --logdir tft/logs
 
 ---
 
+## Дашборд интерпретации TFT
+
+Интерактивная интерпретация обученной модели:
+- **VSN-веса** — важность каждой переменной для статических, энкодерных и декодерных входов
+- **Temporal Self-Attention** — паттерн внимания: на какие прошлые часы опирается модель
+- Фильтрация по периоду и станции
+
+---
+
 ## Авторы
 
-Студент 1 курса магистратуры КНИТУ-КАИ (01.04.02), Горшков Алексей Олегович aka GReaTeAssaSiN, 2026
+Студент 1 курса магистратуры КНИТУ-КАИ (направления 01.04.02), Горшков Алексей Олегович aka GReaTeAssaSiN, 2026  
+Разработка выполнена с использованием [Claude Code](https://claude.ai/code) (Anthropic)
