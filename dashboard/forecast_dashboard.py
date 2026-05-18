@@ -3,6 +3,7 @@
 Запускать из корня проекта: streamlit run dashboard/forecast_dashboard.py
 """
 
+import datetime
 import glob
 import os
 import pickle
@@ -199,6 +200,70 @@ def load_scalers():
         return {}
     with open(p, "rb") as f:
         return pickle.load(f)
+
+
+def build_future_ctx(sc_st, ps, prepared_df_all):
+    """Encoder = last ENCODER_LENGTH real hours; decoder = 24 synthetic rows for ps."""
+    st_df = prepared_df_all[prepared_df_all["station_id"] == sc_st].sort_values("timestamp")
+    encoder = st_df.tail(ENCODER_LENGTH).copy()
+    if encoder.empty:
+        return None, "Нет данных по выбранной станции"
+
+    template = encoder.iloc[-1].copy()
+    last_tidx = int(template["time_idx"])
+
+    # Lookup: season_enc / day_name_enc / holiday_name_enc  by matching known rows
+    season_enc_map = (
+        prepared_df_all.groupby(prepared_df_all["timestamp"].dt.month)["season_enc"]
+        .first().to_dict()
+    )
+    dow_enc_map = (
+        prepared_df_all.groupby(prepared_df_all["timestamp"].dt.dayofweek)["day_name_enc"]
+        .first().to_dict()
+    )
+    no_hol_enc = prepared_df_all[prepared_df_all["is_holiday"] == 0]["holiday_name_enc"].iloc[0]
+    jan1_rows = prepared_df_all[
+        (prepared_df_all["timestamp"].dt.month == 1) &
+        (prepared_df_all["timestamp"].dt.day == 1)
+    ]
+    jan1_hol_enc = jan1_rows["holiday_name_enc"].iloc[0] if not jan1_rows.empty else no_hol_enc
+
+    dec_rows = []
+    for h in range(PREDICTION_LENGTH):
+        ts = ps + pd.Timedelta(hours=h)
+        row = template.copy()
+        row["timestamp"] = ts
+        row["time_idx"] = last_tidx + h + 1
+        hr, dow, m = ts.hour, ts.dayofweek, ts.month
+        woy = int(ts.isocalendar().week)
+
+        row["hour"] = hr
+        row["hour_sin"] = np.sin(2 * np.pi * hr / 24)
+        row["hour_cos"] = np.cos(2 * np.pi * hr / 24)
+        row["day_of_week"] = dow
+        row["day_of_week_sin"] = np.sin(2 * np.pi * dow / 7)
+        row["day_of_week_cos"] = np.cos(2 * np.pi * dow / 7)
+        row["day_name_enc"] = dow_enc_map.get(dow, template["day_name_enc"])
+        row["week_of_year"] = woy
+        row["week_of_year_sin"] = np.sin(2 * np.pi * woy / 52)
+        row["week_of_year_cos"] = np.cos(2 * np.pi * woy / 52)
+        row["month"] = m
+        row["month_sin"] = np.sin(2 * np.pi * m / 12)
+        row["month_cos"] = np.cos(2 * np.pi * m / 12)
+        row["season_enc"] = season_enc_map.get(m, template["season_enc"])
+        row["quarter"] = (m - 1) // 3 + 1
+        row["is_weekend"] = int(dow >= 5)
+        row["is_rush_hour"] = int(hr in [7, 8, 9, 17, 18, 19])
+        row["is_night"] = int(hr < 6 or hr >= 22)
+        is_hol = int(ts.month == 1 and ts.day == 1)
+        row["is_holiday"] = is_hol
+        row["holiday_name_enc"] = jan1_hol_enc if is_hol else no_hol_enc
+        for col in TARGET_COLS:
+            row[col] = 0.0
+        dec_rows.append(row)
+
+    ctx = pd.concat([encoder, pd.DataFrame(dec_rows)], ignore_index=True)
+    return ctx, None
 
 
 @st.cache_resource
@@ -668,11 +733,27 @@ with tab4:
             "Станция", stations, key="sc_station",
             format_func=lambda x: STATION_LABELS.get(str(x), f"АЗС-{x}"),
         )
-        dec_dates = sorted(dec_df["timestamp"].dt.date.unique())
-        sc_date = st.selectbox(
-            "Дата начала 24-часового окна",
-            dec_dates, format_func=lambda d: d.strftime("%d %B %Y"), key="sc_date",
-        )
+        da, db = st.columns([3, 1])
+        with da:
+            sc_date = st.date_input(
+                "Дата начала 24-часового окна",
+                value=datetime.date(2023, 12, 1),
+                min_value=datetime.date(2023, 12, 1),
+                max_value=datetime.date(2024, 3, 31),
+                key="sc_date",
+            )
+        with db:
+            sc_hour = st.selectbox(
+                "Час", list(range(24)),
+                format_func=lambda h: f"{h:02d}:00",
+                key="sc_hour",
+            )
+        is_future_date = sc_date >= datetime.date(2024, 1, 1)
+        if is_future_date:
+            st.info(
+                "Прогноз за пределами 2023 г. Энкодер использует реальные данные "
+                "последних 7 суток декабря 2023. Базовая линия недоступна."
+            )
 
         ca, cb = st.columns(2)
         with ca:
@@ -719,13 +800,21 @@ with tab4:
                 try:
                     from pytorch_forecasting import TimeSeriesDataSet
 
-                    ps  = pd.Timestamp(sc_date)
-                    cs  = ps - pd.Timedelta(hours=ENCODER_LENGTH)
-                    pe  = ps + pd.Timedelta(hours=PREDICTION_LENGTH - 1)
+                    ps = pd.Timestamp(sc_date) + pd.Timedelta(hours=sc_hour)
+                    pe = ps + pd.Timedelta(hours=PREDICTION_LENGTH - 1)
 
-                    ctx = prepared_df[
-                        (prepared_df["timestamp"] >= cs) & (prepared_df["timestamp"] <= pe)
-                    ].copy()
+                    if is_future_date:
+                        ctx, ctx_err = build_future_ctx(sc_st, ps, prepared_df)
+                        if ctx_err:
+                            prog.empty()
+                            st.error(ctx_err)
+                            st.stop()
+                    else:
+                        cs = ps - pd.Timedelta(hours=ENCODER_LENGTH)
+                        ctx = prepared_df[
+                            (prepared_df["timestamp"] >= cs) &
+                            (prepared_df["timestamp"] <= pe)
+                        ].copy()
 
                     fm = (ctx["station_id"] == sc_st) & (ctx["timestamp"] >= ps)
                     ctx.loc[fm, "promotion_fuel_active"] = int(sc_pf)
@@ -805,7 +894,7 @@ with tab4:
                     st_lbl = STATION_LABELS.get(str(sc_st), f"АЗС-{sc_st}")
 
                     base = None
-                    if pred_df is not None:
+                    if not is_future_date and pred_df is not None:
                         pn = f"{sc_tgt}_pred"
                         bdf = pred_df[(pred_df["station_id"] == sc_st) &
                                       (pred_df["timestamp"] >= ps) &
@@ -836,7 +925,7 @@ with tab4:
                                                 line=dict(color=GREEN, width=2.5)))
                     chart_layout(fr, 360)
                     fr.update_layout(
-                        title=f"{lbl_s} · {st_lbl} · {sc_date}",
+                        title=f"{lbl_s} · {st_lbl} · {sc_date} {sc_hour:02d}:00",
                         xaxis_title="Время", yaxis_title=u_s,
                         legend=dict(orientation="h", y=1.13),
                         margin=dict(t=64, b=10, l=0, r=0),
