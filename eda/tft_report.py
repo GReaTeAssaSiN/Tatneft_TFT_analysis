@@ -476,10 +476,11 @@ add_table(
         ["PREDICTION_LENGTH", "24 ч", "Горизонт прогноза (1 сутки)"],
         ["hidden_size", "64 / 128", "CPU / GPU"],
         ["attention_head_size", "2 / 4", "CPU / GPU"],
-        ["dropout", "0.1", "Регуляризация"],
-        ["learning_rate", "1e-3", "Начальный LR (ReduceOnPlateau)"],
-        ["gradient_clip", "0.1", "Обрезка градиентов"],
-        ["EarlyStopping", "patience=5", "Останавливается при отсутствии улучшения"],
+        ["hidden_continuous_size", "64", "Размер сети для числовых входов"],
+        ["dropout", "0.15", "Регуляризация"],
+        ["learning_rate", "3e-4", "Начальный LR (ReduceOnPlateau, patience=5)"],
+        ["gradient_clip", "1.0", "Обрезка градиентов"],
+        ["EarlyStopping", "patience=12", "Останавливается при отсутствии улучшения"],
         ["target_normalizer", "TorchNormalizer(robust)", "Медиана + IQR, устойчив к выбросам"],
     ],
     col_widths=[5, 4, 9.5],
@@ -555,6 +556,121 @@ para(
     "\nОбратное преобразование прогноза (tft/predict.py): "
     "TorchNormalizer^-1 (mode='quantiles', автоматически) -> expm1(x) -> исходные единицы (литры/час для топлива, руб/ч для магазина).",
 )
+
+# ============================================================
+# 5. ИТОГОВЫЙ СОСТАВ ПЕРЕМЕННЫХ МОДЕЛИ
+# ============================================================
+h1(doc, "5. Итоговый состав переменных модели после предобработки")
+
+para(
+    doc,
+    "Таблица показывает, какие именно колонки подаются в TFT после всех шагов "
+    "предобработки. Указаны применённые преобразования и роль в модели.",
+)
+
+VAR_TABLE = [
+    # (Колонка в модели, Исходная переменная, Преобразование, TFT-роль)
+    # static_categoricals
+    ("road_type_enc",               "road_type",               "LabelEncoder",                        "static_cat"),
+    ("direction_enc",               "direction",               "LabelEncoder",                        "static_cat"),
+    ("settlement_size_enc",         "settlement_size",         "LabelEncoder",                        "static_cat"),
+    # static_reals
+    ("distance_to_city_km",         "distance_to_city_km",     "—",                                   "static_real"),
+    ("total_pumps",                 "total_pumps",             "—",                                   "static_real"),
+    ("shop_area_m2",                "shop_area_m2",            "—",                                   "static_real"),
+    ("num_pumps_AI92/95/98 (3 к.)", "num_pumps_AI92/95/98",   "— (3 колонки)",                       "static_real"),
+    ("num_pumps_DT_* (4 к.)",       "num_pumps_DT_*",          "— (4 колонки)",                       "static_real"),
+    ("has_* (5 к.)",                "has_car_wash/cafe/...",   "— (бинарные)",                        "static_real"),
+    ("competitors_within_5km",      "competitors_within_5km",  "—",                                   "static_real"),
+    ("*_score (4 к.)",              "customer/staff/corp/svc", "— (4 колонки)",                       "static_real"),
+    ("base_price_* (7 к.)",         "base_price_AI92/...",     "— (7 колонок)",                       "static_real"),
+    # known_categoricals
+    ("season_enc",                  "season",                  "LabelEncoder",                        "known_cat"),
+    ("day_name_enc",                "day_name",                "LabelEncoder",                        "known_cat"),
+    ("ad_channel_enc",              "ad_channel",              "NaN→'нет_рекламы' + LabelEncoder",    "known_cat"),
+    ("holiday_name_enc",            "holiday_name",            "NaN→'нет_праздника' + LabelEncoder",  "known_cat"),
+    # known_reals
+    ("hour",                        "hour",                    "Z-score",                             "known_real"),
+    ("hour_sin / hour_cos",         "hour",                    "sin/cos(2π·h/24)",                    "known_real"),
+    ("day_of_week",                 "day_of_week",             "Z-score",                             "known_real"),
+    ("dow_sin / dow_cos",           "day_of_week",             "sin/cos(2π·d/7)",                     "known_real"),
+    ("month",                       "month",                   "Z-score",                             "known_real"),
+    ("month_sin / month_cos",       "month",                   "sin/cos(2π·m/12)",                    "known_real"),
+    ("week_of_year",                "week_of_year",            "Z-score",                             "known_real"),
+    ("woy_sin / woy_cos",           "week_of_year",            "sin/cos(2π·w/52)",                    "known_real"),
+    ("quarter",                     "quarter",                 "Z-score",                             "known_real"),
+    ("is_weekend",                  "is_weekend",              "— (бинарная)",                        "known_real"),
+    ("is_holiday",                  "is_holiday",              "— (бинарная)",                        "known_real"),
+    ("is_rush_hour",                "is_rush_hour",            "— (бинарная)",                        "known_real"),
+    ("is_night",                    "is_night",                "— (бинарная)",                        "known_real"),
+    ("promotion_fuel_active",       "promotion_fuel_active",   "— (бинарная)",                        "known_real"),
+    ("promotion_shop_active",       "promotion_shop_active",   "— (бинарная)",                        "known_real"),
+    ("promotion_cafe_active",       "promotion_cafe_active",   "— (бинарная)",                        "known_real"),
+    ("ad_active",                   "ad_active",               "— (бинарная)",                        "known_real"),
+    ("price_AI92/95/98 (3 к.)",     "price_AI92/95/98",        "Z-score per-station",                 "known_real"),
+    ("price_DT_* (4 к.)",           "price_DT_*",              "Z-score per-station (4 кол.)",         "known_real"),
+    # unknown_reals (observed past)
+    ("temperature",                 "temperature",             "Winsorization + Z-score",             "unknown_real"),
+    ("precipitation_mm",            "precipitation_mm",        "Winsorization + Z-score",             "unknown_real"),
+    ("visibility_km",               "visibility_km",           "Winsorization + Z-score",             "unknown_real"),
+    ("wind_speed_ms",               "wind_speed_ms",           "Winsorization + Z-score",             "unknown_real"),
+    ("is_snow / is_rain / is_fog",  "is_snow/rain/fog",        "— (бинарные, 3 кол.)",                "unknown_real"),
+    ("weather_condition",           "weather_condition",       "Winsorization + Z-score",             "unknown_real"),
+    ("traffic_Passengers_cars",     "traffic_Passengers_cars", "Winsorization + Z-score",             "unknown_real"),
+    ("traffic_Truck_short",         "traffic_Truck_short",     "Winsorization + Z-score",             "unknown_real"),
+    ("traffic_Truck",               "traffic_Truck",           "Winsorization + Z-score",             "unknown_real"),
+    ("traffic_Truck_long",          "traffic_Truck_long",      "Winsorization + Z-score",             "unknown_real"),
+    ("traffic_Transporter",         "traffic_Transporter",     "Winsorization + Z-score",             "unknown_real"),
+    ("traffic_Undefined",           "traffic_Undefined",       "Winsorization + Z-score",             "unknown_real"),
+    ("total_traffic",               "total_traffic",           "Winsorization + Z-score",             "unknown_real"),
+    ("shop_total_revenue",          "shop_total_revenue",      "log1p",                               "unknown_real"),
+    ("competitor_price_AI92",       "competitor_price_AI92",   "Winsorization + Z-score",             "unknown_real"),
+    ("competitor_price_AI95",       "competitor_price_AI95",   "Winsorization + Z-score",             "unknown_real"),
+    ("competitor_price_DT",         "competitor_price_DT",     "Winsorization + Z-score",             "unknown_real"),
+    # targets (также observed past в encoder)
+    ("sales_AI92/95/98 (3 к.)",     "sales_AI92/95/98",        "log1p + TorchNormalizer(robust)",     "target"),
+    ("sales_DT_* (4 к.)",           "sales_DT_EURO/...",       "log1p + TorchNormalizer(robust)",     "target"),
+    ("shop_* (5 к.)",               "shop_напитки/...",         "log1p + TorchNormalizer(robust)",     "target"),
+]
+
+ROLE_LABELS = {
+    "static_cat":   "static_categoricals",
+    "static_real":  "static_reals",
+    "known_cat":    "known_categoricals",
+    "known_real":   "known_reals",
+    "unknown_real": "observed past (unknown_reals)",
+    "target":       "target + observed past в encoder",
+}
+
+add_table(
+    doc,
+    headers=["Колонка в модели", "Исходная переменная", "Преобразование", "TFT-роль"],
+    rows=[
+        [col, src, transform, ROLE_LABELS[role]]
+        for col, src, transform, role in VAR_TABLE
+    ],
+    col_widths=[4.5, 4.0, 4.5, 5.5],
+)
+
+doc.add_paragraph()
+h2(doc, "5.1 Итоговое количество переменных по группам")
+
+add_table(
+    doc,
+    headers=["TFT-роль", "Кол-во колонок", "Примечание"],
+    rows=[
+        ["static_categoricals",             "3",   "Тип дороги, направление, размер поселения"],
+        ["static_reals",                    "27",  "Паспортные характеристики АЗС"],
+        ["known_categoricals",              "4",   "Сезон, день недели, канал рекламы, праздник"],
+        ["known_reals",                     "28",  "Время (8 цикл.), бинарные (7), цены (7), прочие (6)"],
+        ["observed past (unknown_reals)",   "19",  "Погода (8), трафик (7), магазин (1), конкуренты (3)"],
+        ["target / observed past encoder",  "12",  "7 видов топлива + 5 категорий магазина"],
+        ["ИТОГО входных колонок",           str(3+27+4+28+19+12), "Без учёта time_idx и station_id"],
+    ],
+    col_widths=[5.5, 3.0, 10.0],
+    header_color="2E74B5",
+)
+
 
 # ============================================================
 # Сохранение
