@@ -8,10 +8,9 @@ __pycache__/
 
 # Обработанные данные отслеживаются (см. data/)
 
-# TFT — модель и артефакты обучения
+# TFT — артефакты обучения (model.ckpt отслеживается)
 tft/checkpoints/
 tft/logs/
-tft/model.ckpt
 tft/*.pkl
 
 # Lightning default logger (создаётся при model.predict без явного logger=False)

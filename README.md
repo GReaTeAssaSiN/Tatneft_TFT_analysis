@@ -61,6 +61,7 @@ FinalWorkDashboard/
 │   ├── eda_preprocessing.py     — предобработка → prepared_data.csv
 │   └── tft_report.py            — DOCX отчёт: переменные, препроцессинг, TFT
 ├── tft/
+│   ├── model.ckpt          — лучшая обученная модель (обновляется при каждом новом best val_loss)
 │   ├── prepare_dataset.py  — сборка TimeSeriesDataSet
 │   ├── train.py            — обучение TFT → model.ckpt
 │   ├── predict.py          — инференс → predictions.csv + metrics.csv

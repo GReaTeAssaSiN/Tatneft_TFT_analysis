@@ -74,11 +74,12 @@ FinalWorkDashboard/
 │   └── tft_report.py           — DOCX отчёт: переменные, препроцессинг, TFT → reports/tft_report.docx
 │
 ├── tft/                        — TFT модель
+│   ├── model.ckpt              — лучшая обученная модель (обновляется при каждом новом best val_loss)
 │   ├── scalers.pkl             — {station_id: {col: (mean, std)}} + log1p_cols
 │   ├── training_dataset.pkl    — объект TimeSeriesDataSet (для train.py)
 │   ├── dataset_config.pkl      — параметры датасета (encoder/prediction length, списки колонок)
 │   ├── prepare_dataset.py      — подготовка TimeSeriesDataSet → tft/*.pkl
-│   ├── train.py                — обучение TFT → tft/model.ckpt
+│   ├── train.py                — обучение TFT → tft/model.ckpt (BestModelSync: обновляется на лету)
 │   ├── predict.py              — инференс на декабрь 2023 → data/predictions.csv + data/metrics.csv
 │   ├── checkpoints/            — чекпоинты (лучший, monitor=val_loss)
 │   └── logs/                   — TensorBoard логи (tensorboard --logdir tft/logs)
