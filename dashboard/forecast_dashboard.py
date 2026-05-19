@@ -811,16 +811,15 @@ with tab4:
     with sc_col:
         sec("Сценарный анализ (What-if)")
         banner(
-            "Измените параметры и нажмите <b>Запустить прогноз</b> — TFT пересчитает "
-            "прогноз на 24 часа с новыми условиями. "
-            "Сравните результат с базовым прогнозом (реальные условия декабря). "
+            "Сценарий использует <b>станцию и показатель из фильтра выше</b>. "
+            "Задайте дату, час и условия — TFT пересчитает прогноз на 24 часа. "
+            "Рекомендации справа обновятся автоматически. "
             "Первый запуск загружает модель (~30 с)."
         )
 
-        sc_st = st.selectbox(
-            "Станция", stations, key="sc_station",
-            format_func=lambda x: STATION_LABELS.get(str(x), f"АЗС-{x}"),
-        )
+        sc_st  = sel_station   # единый фильтр со страницей
+        sc_tgt = sel_target    # единый фильтр со страницей
+
         da, db = st.columns([3, 1])
         with da:
             sc_date = st.date_input(
@@ -855,10 +854,6 @@ with tab4:
 
         ad_opts = {v: k for k, v in ad_map.items()}
         sc_ch = st.selectbox("Канал рекламы", list(ad_opts.keys()), key="sc_ch")
-        sc_tgt = st.selectbox(
-            "Прогнозируемый показатель", TARGET_COLS,
-            format_func=lambda x: TARGET_LABELS.get(x, x), key="sc_tgt",
-        )
 
         # Слайдер цены — только для топливных показателей
         sc_price_rub = None
@@ -876,7 +871,10 @@ with tab4:
             )
             st.caption(f"Медиана 2023 г.: {base_p:.1f} руб/л · диапазон ±12%")
 
-        run = st.button("▶ Запустить прогноз", type="primary")
+        if sel_station == "Все":
+            st.info("Выберите конкретную станцию в фильтре выше для запуска сценарного анализа.")
+        run = st.button("▶ Запустить прогноз", type="primary",
+                        disabled=(sel_station == "Все"))
 
         if run:
             prog = st.progress(0, text="Инициализация...")
@@ -1002,6 +1000,30 @@ with tab4:
                         val_peak = sc_ts["scenario"].max()
                         peak_ts  = sc_ts.loc[sc_ts["scenario"].idxmax(), "timestamp"]
 
+                        # Сохраняем результаты для динамических рекомендаций
+                        _base_mean_sc = (
+                            float(base["baseline"].mean())
+                            if base is not None and not base.empty else None
+                        )
+                        _price_delta_sc = None
+                        if sc_price_rub is not None:
+                            _price_delta_sc = (sc_price_rub - base_p) / base_p * 100 if base_p > 0 else None
+                        st.session_state["sc_result"] = {
+                            "val_mean":     float(val_mean),
+                            "val_peak":     float(val_peak),
+                            "peak_ts":      peak_ts,
+                            "sc_tgt":       sc_tgt,
+                            "sc_st":        sc_st,
+                            "sc_pf":        sc_pf,
+                            "sc_ps":        sc_ps,
+                            "sc_ad":        sc_ad,
+                            "sc_ch":        sc_ch,
+                            "base_mean":    _base_mean_sc,
+                            "price_delta":  _price_delta_sc,
+                            "use_synthetic": use_synthetic,
+                            "unit":         u_s,
+                        }
+
                         km1, km2, km3 = st.columns(3)
                         with km1:
                             kpi(f"{sc_date.strftime('%d.%m')} {sc_hour:02d}:00",
@@ -1052,12 +1074,95 @@ with tab4:
             "Надёжность прогноза — метрики TFT на тестовом декабре."
         )
 
+        # ── Динамический блок: результаты последнего сценария ────
+        sr = st.session_state.get("sc_result")
+        _sr_fresh = (
+            sr is not None
+            and sr.get("sc_tgt") == sel_target
+            and str(sr.get("sc_st", "")) == str(sel_station)
+        )
+        if _sr_fresh:
+            lbl_sr  = TARGET_LABELS.get(sr["sc_tgt"], sr["sc_tgt"])
+            u_sr    = sr["unit"]
+            st_sr   = STATION_LABELS.get(str(sr["sc_st"]), f"АЗС-{sr['sc_st']}")
+
+            sec("Результат сценария")
+
+            if sr["base_mean"] is not None:
+                dp_sr = (
+                    (sr["val_mean"] - sr["base_mean"]) / sr["base_mean"] * 100
+                    if sr["base_mean"] > 0 else 0
+                )
+                col_sr = GREEN if dp_sr >= 0 else RED
+                rec_card(
+                    f"Сценарий vs базовый · {lbl_sr}",
+                    f"{'↑' if dp_sr >= 0 else '↓'} <b>{abs(dp_sr):.1f}%</b> к прогнозу декабря: "
+                    f"<b>{sr['val_mean']:.1f}</b> vs {sr['base_mean']:.1f} {u_sr} "
+                    f"(среднее за 24ч).",
+                    color=col_sr,
+                )
+            else:
+                rec_card(
+                    f"Прогноз · {lbl_sr} · {st_sr}",
+                    f"Ср. за 24ч: <b>{sr['val_mean']:.1f} {u_sr}</b> · "
+                    f"Пик: <b>{sr['val_peak']:.1f} {u_sr}</b> "
+                    f"в {sr['peak_ts'].strftime('%H:%M')}.",
+                    color=TEAL,
+                )
+
+            promo_parts = []
+            if sr["sc_pf"]:
+                promo_parts.append("акция на топливо")
+            if sr["sc_ps"]:
+                promo_parts.append("акция в магазине")
+            if sr["sc_ad"]:
+                promo_parts.append(f"реклама «{sr['sc_ch']}»")
+            if promo_parts:
+                rec_card(
+                    "Активные стимулы",
+                    "Включены: <b>" + ", ".join(promo_parts) + "</b>. "
+                    "Прогноз отражает совместный эффект этих факторов.",
+                    color=GOLD,
+                )
+            else:
+                rec_card(
+                    "Активные стимулы",
+                    "Акции и реклама в сценарии отключены — прогноз в базовых условиях.",
+                    color=GRAY,
+                )
+
+            if sr["price_delta"] is not None:
+                pdelta = sr["price_delta"]
+                rec_card(
+                    "Ценовое воздействие",
+                    f"Цена {'повышена' if pdelta > 0 else 'снижена'} на "
+                    f"<b>{abs(pdelta):.1f}%</b> относительно медианы 2023 г. "
+                    "Эффект учтён в прогнозе TFT.",
+                    color=RED if pdelta > 0 else GREEN,
+                )
+
+            rec_card(
+                "Пик прогноза",
+                f"Максимум: <b>{sr['val_peak']:.1f} {u_sr}</b> "
+                f"в <b>{sr['peak_ts'].strftime('%H:%M')}</b> · {st_sr}.",
+                color=TEAL,
+            )
+
+            st.markdown(
+                f"<div style='font-size:0.75rem;color:{TEXT_S};margin:14px 0 4px 0;"
+                f"padding-top:10px;border-top:1px solid {SEC_LINE};'>"
+                f"Рекомендации ниже — по выбранной станции и показателю, данные 2023 г."
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+        # ── Статические рекомендации (EDA-паттерны) ─────────────
         # Источник: весь год, фильтрация по выбранной станции
         rd = merged_df.copy()
         if sel_station != "Все":
             rd = rd[rd["station_id"] == sel_station]
 
-        # Надёжность прогноза по выбранному показателю (первая карточка — контекст)
+        # Надёжность прогноза (контекст для рекомендаций)
         if metrics_df is not None and sel_target in metrics_df["target"].values:
             tgt_m = metrics_df[metrics_df["target"] == sel_target]
             if sel_station != "Все":
@@ -1066,53 +1171,50 @@ with tab4:
                 mape = tgt_m["MAPE_%"].mean()
                 if not np.isnan(mape):
                     if mape <= 10:
-                        reliability = "высокая"
-                        rel_hint = "сценарным прогнозам можно доверять"
+                        rel_hint = "Сценарные прогнозы надёжны — используйте их для оперативного планирования."
                         rel_color = GREEN
                     elif mape <= 20:
-                        reliability = "умеренная"
-                        rel_hint = "прогноз ориентировочный, учитывайте погрешность"
+                        rel_hint = "Прогноз ориентировочный — закладывайте погрешность при принятии решений."
                         rel_color = GOLD
                     else:
-                        reliability = "низкая"
-                        rel_hint = "прогноз нестабилен, используйте как индикатив"
+                        rel_hint = "Прогноз нестабилен — применяйте как индикатив, перепроверяйте вручную."
                         rel_color = RED
                     rec_card(
-                        f"Точность TFT · {target_label}",
-                        f"MAPE <b>{mape:.1f}%</b> — надёжность <b>{reliability}</b>. {rel_hint}.",
+                        f"Надёжность прогноза · {target_label}",
+                        f"MAPE модели <b>{mape:.1f}%</b>. {rel_hint}",
                         color=rel_color,
                     )
 
-        # Эффект акции
+        # Акционный рычаг
         pcol2 = "promotion_fuel_active" if sel_target in FUEL_COLS else "promotion_shop_active"
         if pcol2 in rd.columns and sel_target in rd.columns:
             on  = rd[rd[pcol2] == 1][sel_target].mean()
             off = rd[rd[pcol2] == 0][sel_target].mean()
             if off > 0 and not np.isnan(on):
                 d = (on - off) / off * 100
-                rec_card(
-                    "Акционные периоды",
-                    f"{'↑' if d > 0 else '↓'} <b>{abs(d):.1f}%</b> "
-                    f"{'прирост' if d > 0 else 'снижение'} продаж {target_label} при акции "
-                    f"({on:.1f} vs {off:.1f} {unit}) — по данным всего 2023 г.",
-                    color=GREEN if d > 0 else RED,
-                )
+                if d > 0:
+                    action = (f"Запустите акцию — по данным 2023 г. это даёт <b>+{d:.1f}%</b> "
+                              f"к продажам {target_label} ({on:.1f} vs {off:.1f} {unit}).")
+                else:
+                    action = (f"Акция исторически снижает продажи {target_label} на "
+                              f"<b>{abs(d):.1f}%</b> — рассмотрите альтернативные стимулы.")
+                rec_card("Акционный рычаг", action, color=GREEN if d > 0 else RED)
 
-        # Лучший рекламный канал
+        # Оптимальный рекламный канал
         if "ad_channel" in rd.columns and sel_target in rd.columns:
             aa = rd.groupby("ad_channel")[sel_target].mean()
-            wch = rd.groupby("ad_channel")[sel_target].mean()
             if not aa.empty:
                 bch = aa.idxmax()
                 wch_name = aa.idxmin()
+                gain = (aa[bch] - aa[wch_name]) / aa[wch_name] * 100 if aa[wch_name] > 0 else 0
                 rec_card(
-                    "Рекламный канал",
-                    f"Наибольший эффект за год: <b>«{bch}»</b> — ср. {aa[bch]:.1f} {unit}. "
-                    f"Наименьший: «{wch_name}» ({aa[wch_name]:.1f} {unit}).",
+                    "Оптимальный рекламный канал",
+                    f"Используйте канал <b>«{bch}»</b> — в среднем {aa[bch]:.1f} {unit}, "
+                    f"на <b>{gain:.0f}%</b> выше наименее эффективного («{wch_name}»).",
                     color=BLUE,
                 )
 
-        # Пиковые часы
+        # Окно высокого спроса
         if sel_target in rd.columns:
             hr3 = pd.to_datetime(rd["timestamp"]).dt.hour
             hg3 = rd.groupby(hr3)[sel_target].mean()
@@ -1120,34 +1222,48 @@ with tab4:
                 ph3 = int(hg3.idxmax())
                 lh3 = int(hg3.idxmin())
                 rec_card(
-                    "Пиковые часы продаж",
-                    f"Пик: <b>{ph3}:00–{(ph3+1)%24}:00</b> ({hg3[ph3]:.1f} {unit}). "
-                    f"Минимум: {lh3}:00 ({hg3[lh3]:.1f} {unit}).",
+                    "Окно высокого спроса",
+                    f"Сосредоточьте акции и ресурсы на <b>{ph3}:00–{(ph3+1)%24}:00</b> "
+                    f"({hg3[ph3]:.1f} {unit}). "
+                    f"Минимальный спрос — {lh3}:00 ({hg3[lh3]:.1f} {unit}).",
                     color=GOLD,
                 )
 
-        # Лучший день недели
+        # Лучший день для акций
         if sel_target in rd.columns:
             dr2 = pd.to_datetime(rd["timestamp"]).dt.dayofweek
             dg2 = rd.groupby(dr2)[sel_target].mean()
             if not dg2.empty:
-                bd  = int(dg2.idxmax())
-                wd  = int(dg2.idxmin())
+                bd = int(dg2.idxmax())
+                wd = int(dg2.idxmin())
+                lift = (dg2[bd] - dg2[wd]) / dg2[wd] * 100 if dg2[wd] > 0 else 0
                 rec_card(
-                    "Лучший день недели",
-                    f"Максимум: <b>{DAY_NAMES[bd]}</b> ({dg2[bd]:.1f} {unit}). "
-                    f"Минимум: {DAY_NAMES[wd]} ({dg2[wd]:.1f} {unit}).",
+                    "Лучший день для акций",
+                    f"Планируйте промо на <b>{DAY_NAMES[bd]}</b> — спрос на "
+                    f"<b>{lift:.0f}%</b> выше, чем в {DAY_NAMES[wd]} "
+                    f"({dg2[bd]:.1f} vs {dg2[wd]:.1f} {unit}).",
                     color=GREEN,
                 )
 
-        # Зависимость от трафика
+        # Трафик как сигнал
         if "total_traffic" in rd.columns and sel_target in rd.columns:
             r = rd[["total_traffic", sel_target]].corr().iloc[0, 1]
-            direction = "положительная" if r > 0 else "отрицательная"
-            strength  = "сильная" if abs(r) > 0.5 else "умеренная" if abs(r) > 0.25 else "слабая"
-            rec_card(
-                "Зависимость от трафика",
-                f"Корреляция {direction} и {strength} (r = {r:.2f}). "
-                + ("Рост трафика → рост продаж." if r > 0 else "Трафик слабо влияет на продажи."),
-                color=TEAL,
-            )
+            if abs(r) > 0.5:
+                traffic_hint = (
+                    f"Отслеживайте трафик — сильная корреляция (r = {r:.2f}): "
+                    "рост потока машин предсказывает рост продаж."
+                    if r > 0 else
+                    f"Высокий трафик не гарантирует рост продаж (r = {r:.2f}) — "
+                    "акции важнее потока."
+                )
+            elif abs(r) > 0.25:
+                traffic_hint = (
+                    f"Умеренная связь с трафиком (r = {r:.2f}) — "
+                    "используйте его как дополнительный сигнал, не основной."
+                )
+            else:
+                traffic_hint = (
+                    f"Трафик слабо влияет на {target_label} (r = {r:.2f}) — "
+                    "фокус на акциях и рекламе эффективнее."
+                )
+            rec_card("Трафик как сигнал", traffic_hint, color=TEAL)
