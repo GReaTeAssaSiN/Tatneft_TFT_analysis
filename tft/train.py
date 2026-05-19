@@ -6,6 +6,7 @@
 import glob
 import os
 import pickle
+import shutil
 import sys
 
 os.environ["LIGHTNING_DISABLE_REMOTE_TIPS"] = "1"
@@ -133,6 +134,29 @@ total_params = sum(p.numel() for p in tft.parameters())
 print(f"  Параметров модели   : {total_params:,}")
 
 # ============================================================
+# Колбэк: синхронизация model.ckpt при каждом новом лучшем чекпоинте
+# ============================================================
+
+class BestModelSync(pl.Callback):
+    """Перезаписывает tft/model.ckpt каждый раз, когда ModelCheckpoint
+    сохраняет новый лучший чекпоинт — без ожидания конца обучения."""
+
+    def __init__(self, checkpoint_cb: ModelCheckpoint, dest: str = "tft/model.ckpt"):
+        self.checkpoint_cb = checkpoint_cb
+        self.dest = dest
+        self._last_synced: str = ""
+
+    def on_validation_epoch_end(self, trainer: pl.Trainer, pl_module) -> None:
+        best = self.checkpoint_cb.best_model_path
+        if best and os.path.exists(best) and best != self._last_synced:
+            shutil.copy(best, self.dest)
+            self._last_synced = best
+            score = self.checkpoint_cb.best_model_score
+            print(f"  → model.ckpt обновлён  "
+                  f"[epoch {trainer.current_epoch}  val_loss={score:.4f}]")
+
+
+# ============================================================
 # Callbacks
 # ============================================================
 os.makedirs("tft/checkpoints", exist_ok=True)
@@ -155,6 +179,7 @@ early_stop_cb = EarlyStopping(
 )
 
 lr_monitor = LearningRateMonitor(logging_interval="epoch")
+sync_cb = BestModelSync(checkpoint_cb)
 
 tb_logger = TensorBoardLogger("tft/logs", name="tft_model")
 
@@ -185,7 +210,7 @@ trainer = pl.Trainer(
     accelerator=ACCELERATOR,
     devices=1,
     gradient_clip_val=GRADIENT_CLIP,
-    callbacks=[checkpoint_cb, early_stop_cb, lr_monitor],
+    callbacks=[checkpoint_cb, early_stop_cb, lr_monitor, sync_cb],
     enable_model_summary=True,
     log_every_n_steps=10,
     logger=tb_logger,
@@ -205,12 +230,9 @@ best_path = checkpoint_cb.best_model_path
 print(f"\nЛучший чекпоинт     : {best_path}")
 print(f"Лучший val_loss     : {checkpoint_cb.best_model_score:.4f}")
 
-# Копируем лучший чекпоинт как model.ckpt для удобства
-import shutil
-
-if best_path:
+if best_path and not os.path.exists("tft/model.ckpt"):
     shutil.copy(best_path, "tft/model.ckpt")
-    print(f"Сохранено           : tft/model.ckpt")
+    print(f"Сохранено           : tft/model.ckpt (финальный fallback)")
 
 print("\n" + "=" * 60)
 print("Готово.")
