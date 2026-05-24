@@ -40,8 +40,8 @@
 
 | Переменная | Тип | Уник. | Пропуски | Диапазон / значения | Предобработка |
 |---|---|---|---|---|---|
-| `station_name` | object | 5 | 0 | Татнефть-АЗС-001, Татнефть-АЗС-002, Татнефть-АЗС-003, ... | Строка. Только для читаемости, в модель не входит. |
-| `timestamp` | datetime64[ns] | 8760 | 0 | 2023-01-01 — 2023-12-31 | datetime. Используется для построения time_idx (cumcount). |
+| `station_name` | str | 5 | 0 | Татнефть-АЗС-001, Татнефть-АЗС-002, Татнефть-АЗС-003, ... | Строка. Только для читаемости, в модель не входит. |
+| `timestamp` | datetime64[us] | 8760 | 0 | 2023-01-01 — 2023-12-31 | datetime. Используется для построения time_idx (cumcount). |
 | `total_fuel_sales` | float64 | 589 | 0 | [0, 776] | Линейная сумма 7 целевых переменных. Избыточна для модели. |
 
 ### Статические категориальные (`static_categoricals`)
@@ -52,9 +52,9 @@
 
 | Переменная | Тип | Уник. | Пропуски | Диапазон / значения | Предобработка |
 |---|---|---|---|---|---|
-| `road_type` | object | 2 | 0 | федеральная трасса М, региональная дорога | Label Encoding -> road_type_enc. TFT строит embedding-слой. |
-| `direction` | object | 3 | 0 | транзит, из_города, в_город | Label Encoding -> direction_enc. |
-| `settlement_size` | object | 3 | 0 | сельская местность (, средний город (50-25, мегаполис (>1млн) | Label Encoding -> settlement_size_enc. |
+| `road_type` | str | 2 | 0 | федеральная трасса М, региональная дорога | Label Encoding -> road_type_enc. TFT строит embedding-слой. |
+| `direction` | str | 3 | 0 | транзит, из_города, в_город | Label Encoding -> direction_enc. |
+| `settlement_size` | str | 3 | 0 | сельская местность (, средний город (50-25, мегаполис (>1млн) | Label Encoding -> settlement_size_enc. |
 
 ### Статические вещественные (`static_reals`)
 
@@ -100,10 +100,10 @@
 
 | Переменная | Тип | Уник. | Пропуски | Диапазон / значения | Предобработка |
 |---|---|---|---|---|---|
-| `season` | object | 4 | 0 | winter, spring, summer, ... | Label Encoding -> season_enc. |
-| `day_name` | object | 7 | 0 | Sunday, Monday, Tuesday, ... | Label Encoding -> day_name_enc. |
-| `ad_channel` | object | 7 | 0 | ТВ, нет_рекламы, email, ... | NaN -> 'нет_рекламы'. Label Encoding -> ad_channel_enc. |
-| `holiday_name` | object | 10 | 0 | Новый год, нет_праздника, Рождество, ... | NaN -> 'нет_праздника'. Label Encoding -> holiday_name_enc. |
+| `season` | str | 4 | 0 | winter, spring, summer, ... | Label Encoding -> season_enc. |
+| `day_name` | str | 7 | 0 | Sunday, Monday, Tuesday, ... | Label Encoding -> day_name_enc. |
+| `ad_channel` | str | 7 | 0 | ТВ, нет_рекламы, email, ... | NaN -> 'нет_рекламы'. Label Encoding -> ad_channel_enc. |
+| `holiday_name` | str | 10 | 0 | Новый год, нет_праздника, Рождество, ... | NaN -> 'нет_праздника'. Label Encoding -> holiday_name_enc. |
 
 ### Известные будущие вещественные (`known_reals`)
 
@@ -143,7 +143,7 @@
 | Переменная | Тип | Уник. | Пропуски | Диапазон / значения | Предобработка |
 |---|---|---|---|---|---|
 | `temperature` | float64 | 615 | 0 | [-35, 35] | Z-score per-station. Winsorization IQR. |
-| `weather_condition` | object | 5 | 0 | снег, ясно, облачно, ... | Label Encoding -> weather_condition_enc (float). Используется как вещественное — TFT обрабатывает через prescaler. |
+| `weather_condition` | str | 5 | 0 | снег, ясно, облачно, ... | Label Encoding -> weather_condition_enc (float). Используется как вещественное — TFT обрабатывает через prescaler. |
 | `precipitation_mm` | float64 | 113 | 0 | [0, 18.4] | Z-score per-station. Winsorization IQR. |
 | `visibility_km` | float64 | 136 | 0 | [0.2, 15] | Z-score per-station. |
 | `wind_speed_ms` | float64 | 151 | 0 | [0, 15] | Z-score per-station. Winsorization IQR. |

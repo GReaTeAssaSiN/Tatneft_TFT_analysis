@@ -624,14 +624,14 @@ for group_key in TFT_GROUPS_ORDER:
         n_null = int(df[col].isnull().sum())
         n_uniq = int(df[col].nunique())
 
-        if df[col].dtype == object:
+        if pd.api.types.is_datetime64_any_dtype(df[col]):
+            range_str = f"{df[col].min().date()} — {df[col].max().date()}"
+        elif pd.api.types.is_numeric_dtype(df[col]):
+            range_str = f"[{df[col].min():.3g}, {df[col].max():.3g}]"
+        else:
             vals = [str(v) for v in df[col].dropna().unique().tolist()]
             short = [v[:20] for v in vals[:3]]
             range_str = ", ".join(short) + (", ..." if n_uniq > 3 else "")
-        elif pd.api.types.is_datetime64_any_dtype(df[col]):
-            range_str = f"{df[col].min().date()} — {df[col].max().date()}"
-        else:
-            range_str = f"[{df[col].min():.3g}, {df[col].max():.3g}]"
 
         prep = TFT_ROLES[col]["preprocessing"].replace("\n", " ")
         lines.append(f"| `{col}` | {dtype} | {n_uniq} | {n_null} | {range_str} | {prep} |")
