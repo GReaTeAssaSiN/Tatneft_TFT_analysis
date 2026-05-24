@@ -388,13 +388,13 @@ UI-компоненты: `kpi()`, `sec()`, `banner()`, `rec_card()`, `chart_layo
 ## Стек
 
 ```
-Python 3.10
+Python 3.14.3
 pytorch-forecasting 1.7.0   — TFT модель
 lightning.pytorch 2.6.1     — обучение
 torch 2.6                   — с патчем weights_only в torch_compat.py
 streamlit                   — дашборды
 plotly                      — графики (graph_objects + express)
 pandas, numpy, scikit-learn — препроцессинг
-python-docx                 — DOCX отчёты
+python-docx 1.2.0           — DOCX отчёты (не путать с устаревшим пакетом docx 0.2.4)
 tensorboard                 — мониторинг обучения
 ```

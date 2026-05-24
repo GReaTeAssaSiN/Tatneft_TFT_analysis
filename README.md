@@ -27,11 +27,12 @@
 
 | Компонент | Технология |
 |---|---|
+| Язык | Python 3.14.3 |
 | Модель | pytorch-forecasting 1.7.0 (TFT) |
 | Обучение | lightning.pytorch 2.6.1 |
 | Дашборд | Streamlit + Plotly |
 | Препроцессинг | pandas, numpy, scikit-learn |
-| Отчёты | python-docx |
+| Отчёты | python-docx 1.2.0 |
 | Мониторинг обучения | TensorBoard |
 
 ---
