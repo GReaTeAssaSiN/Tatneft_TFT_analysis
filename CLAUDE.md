@@ -210,7 +210,8 @@ FinalWorkDashboard/
 │   └── logs/                   — TensorBoard (tensorboard --logdir tft/logs)
 │
 ├── dashboard/
-│   └── app_dashboard.py        — единый дашборд (4 главные вкладки + подвкладки)
+│   ├── app_dashboard.py        — единый дашборд (4 главные вкладки + подвкладки)
+│   └── train_dashboard.py      — дашборд управления обучением (3 вкладки: гиперпараметры, обучение, результаты)
 │
 ├── utils/
 │   ├── data_utils.py           — ВСЕ константы проекта (единственный источник истины):
@@ -247,7 +248,11 @@ python report_generating/eda_column_analysis.py     # → reports/column_analysi
 python report_generating/tft_report.py              # → reports/tft_report.docx
 
 python tft/prepare_dataset.py        # → tft/training_dataset.pkl + tft/dataset_config.pkl
-python tft/train.py                  # → tft/model.ckpt
+
+# (опционально) Настроить гиперпараметры через UI:
+streamlit run dashboard/train_dashboard.py      # → tft/train_config.json (сохраняется кнопкой)
+
+python tft/train.py                  # → tft/model.ckpt  (подхватывает tft/train_config.json если есть)
 
 python tft/predict.py                # → data/predictions.csv + data/metrics.csv
 
@@ -325,6 +330,44 @@ CARD_BG     = "#13161f"   # фон KPI-карточек и Plotly-графико
 
 UI-компоненты: `kpi_card()`, `sfig()`, `add_regline()` —
 кастомные функции с inlined HTML/CSS (без внешних CSS-классов).
+
+---
+
+## Дашборд управления обучением (train_dashboard.py)
+
+Запуск: `streamlit run dashboard/train_dashboard.py` (из корня проекта).
+Не зависит от `merged_data.csv` — работает с файлами `tft/` напрямую.
+
+### 3 вкладки
+
+**tab1 — ⚙️ Гиперпараметры**
+- Слайдеры/поля: `hidden_size` [32/64/128/256], `attention_head_size` [1/2/4/8],
+  `hidden_continuous_size`, `learning_rate`, `dropout`, `gradient_clip`,
+  `batch_size` [16/32/64/128], `max_epochs`, `patience`.
+- Предупреждение если `hidden_continuous > hidden_size/2`; ошибка если `hidden_size % attn_heads ≠ 0`.
+- Пресеты CPU/GPU, сброс в дефолты.
+- «Сохранить» → `tft/train_config.json`. «Удалить конфиг» → `train.py` вернётся к auto-дефолтам.
+
+**tab2 — 🚀 Обучение**
+- «Запустить обучение»: `subprocess.Popen(sys.executable, "tft/train.py")` с `PYTHONIOENCODING=utf-8`.
+- Живой вывод stdout через `threading.Thread` + `queue.Queue` → `st.session_state.train_output`.
+- Авто-обновление каждые 2 с через `time.sleep(2); st.rerun()` пока `proc.poll() is None`.
+- «Остановить»: `proc.terminate()` + `proc.wait(5)`.
+- Отображает статус (обучение / завершено / ошибка) и прошедшее время.
+- Предупреждает если `tft/training_dataset.pkl` или `data/prepared_data.csv` не найдены.
+
+**tab3 — 📈 Результаты**
+- Кривые потерь из `tft/logs/tft_model/version_*/` через `EventAccumulator`
+  (теги `train_loss_step` / `train_loss_epoch`, `val_loss`).
+- Маркер лучшего val_loss на графике.
+- KPI: размер `tft/model.ckpt`, последний чекпоинт, число TensorBoard версий.
+- Таблица активных гиперпараметров (из `tft/train_config.json` или дефолты).
+
+### Интеграция с train.py
+`tft/train.py` после блока GPU/CPU дефолтов читает `tft/train_config.json` (если есть)
+и переопределяет `BATCH_SIZE`, `EPOCHS`, `HIDDEN_SIZE`, `ATTN_HEADS`, `LEARNING_RATE`,
+`DROPOUT`, `GRADIENT_CLIP`, `HIDDEN_CONTINUOUS`, `_PATIENCE`.
+Если файла нет — используются auto-дефолты (CPU или GPU в зависимости от устройства).
 
 ---
 

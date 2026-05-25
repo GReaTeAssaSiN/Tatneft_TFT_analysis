@@ -71,7 +71,8 @@ FinalWorkDashboard/
 │   ├── checkpoints/        — чекпоинты Lightning (создаётся train.py, хранится лучший по val_loss)
 │   └── logs/               — TensorBoard логи (создаётся train.py; просмотр: tensorboard --logdir tft/logs)
 ├── dashboard/
-│   └── app_dashboard.py         — единый дашборд: EDA + прогнозы + интерпретация (4 вкладки)
+│   ├── app_dashboard.py         — единый дашборд: EDA + прогнозы + интерпретация (4 вкладки)
+│   └── train_dashboard.py       — дашборд управления обучением: гиперпараметры, запуск, кривые потерь
 ├── utils/
 │   ├── data_utils.py       — все константы проекта + утилиты
 │   └── torch_compat.py     — патч torch.load для PyTorch 2.6
@@ -106,6 +107,11 @@ python report_generating/tft_report.py             # → reports/tft_report.docx
 
 # 5. Обучение TFT
 python tft/prepare_dataset.py        # → tft/training_dataset.pkl + tft/dataset_config.pkl
+
+# 5а. (опционально) Настройка гиперпараметров через дашборд
+streamlit run dashboard/train_dashboard.py   # → tft/train_config.json
+
+# 5б. Запуск обучения (из консоли или через дашборд)
 python tft/train.py                  # → tft/model.ckpt
 
 # 6. Инференс (декабрь 2023)
@@ -129,7 +135,9 @@ tensorboard --logdir tft/logs
 
 ---
 
-## Дашборд (`dashboard/app_dashboard.py`)
+## Дашборды
+
+### `dashboard/app_dashboard.py` — основной
 
 Единый дашборд. Загружает `merged_data.csv` сразу после шага 2; прогнозы и интерпретация
 активируются gracefully по мере появления файлов.
@@ -143,6 +151,17 @@ tensorboard --logdir tft/logs
 | **Анализ данных** | Погода & Трафик; Акции & Реклама; Корреляции (матрица, топ-5 факторов); Статистика (распределения, scatter, violin) |
 | **Прогноз TFT** | Метрики & Точность (MAPE, R²); Прогноз vs Факт (q10–q90, scatter, гистограмма ошибок); Сценарий What-if (горизонт 1/7/30 дней); Интерпретация VSN + temporal attention |
 | **Рекомендации** | EDA-рекомендации 2023: акционный рычаг, оптимальный рекламный канал, окно высокого спроса, лучший день, трафик как сигнал |
+
+### `dashboard/train_dashboard.py` — управление обучением
+
+Отдельный дашборд для настройки и запуска обучения TFT без командной строки.
+Запуск: `streamlit run dashboard/train_dashboard.py`
+
+| Вкладка | Содержимое |
+|---|---|
+| **⚙️ Гиперпараметры** | Слайдеры и поля для hidden_size, attention_heads, hidden_continuous, learning_rate, dropout, gradient_clip, batch_size, max_epochs, patience; пресеты CPU/GPU; сохранение в `tft/train_config.json` |
+| **🚀 Обучение** | Кнопки Запустить/Остановить; живой вывод `tft/train.py` в реальном времени; индикатор статуса и прошедшего времени |
+| **📈 Результаты** | Кривые train/val loss из TensorBoard (EventAccumulator); информация о лучшем чекпоинте; таблица активных гиперпараметров |
 
 ---
 
