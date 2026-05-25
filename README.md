@@ -94,30 +94,39 @@ python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
 
-# 2. Подготовка данных
+# 2. Объединение исходных данных
 python explore_data.py               # → data/merged_data.csv (43800 × 89)
 
-# 3. Дашборд (доступен сразу после шага 2; прогнозы и интерпретация — после шагов 4–6)
-streamlit run dashboard/app_dashboard.py
+# 3. Препроцессинг
+python eda/eda_preprocessing.py      # → data/prepared_data.csv (43800 × 111) + tft/scalers.pkl
 
-# 4. Препроцессинг и отчёты
-python eda/eda_preprocessing.py                    # → data/prepared_data.csv (43800 × 111) + tft/scalers.pkl
+# 4. (опционально) Генерация отчётов
 python report_generating/eda_column_analysis.py    # → reports/column_analysis.md
 python report_generating/tft_report.py             # → reports/tft_report.docx
 
-# 5. Обучение TFT
+# 5. Подготовка датасета TFT
 python tft/prepare_dataset.py        # → tft/training_dataset.pkl + tft/dataset_config.pkl
 
-# 5а. (опционально) Настройка гиперпараметров через дашборд
-streamlit run dashboard/train_dashboard.py   # → tft/train_config.json
+# 6. Обучение TFT — выберите один из двух способов:
 
-# 5б. Запуск обучения (из консоли или через дашборд)
+# ── Способ А: через консоль ──────────────────────────────────
 python tft/train.py                  # → tft/model.ckpt
+# tft/train_config.json подхватывается автоматически, если был сохранён заранее
 
-# 6. Инференс (декабрь 2023)
+# ── Способ Б: через дашборд обучения ────────────────────────
+streamlit run dashboard/train_dashboard.py
+# ⚙️  Гиперпараметры → настроить → «Сохранить конфиг»
+# 🚀  Обучение       → «Запустить обучение» (вывод в реальном времени)
+# 📈  Результаты     → кривые потерь, метрики по запускам
+# ⚠️  После завершения обучения любым способом — обязателен шаг 7
+
+# 7. Инференс (декабрь 2023) — обязателен после обучения
 python tft/predict.py                # → data/predictions.csv + data/metrics.csv
 
-# 7. Мониторинг обучения (в отдельном терминале)
+# 8. Итоговый дашборд
+streamlit run dashboard/app_dashboard.py
+
+# (опционально) Мониторинг обучения — запускать в отдельном терминале во время шага 6
 tensorboard --logdir tft/logs
 ```
 
