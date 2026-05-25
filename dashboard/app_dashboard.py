@@ -576,7 +576,7 @@ st.markdown(f"""
   </span>
 </div>
 """, unsafe_allow_html=True)
-gf1, gf2 = st.columns([3, 7])
+gf1, gf2 = st.columns([1, 1])
 with gf1:
     st.markdown(
         f'<p style="font-size:10px;color:{GRAY};letter-spacing:.09em;font-weight:700;'
