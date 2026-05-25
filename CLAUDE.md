@@ -242,23 +242,30 @@ FinalWorkDashboard/
 python -m venv venv && venv\Scripts\activate
 pip install -r requirements.txt
 
+# Обязательные шаги
 python explore_data.py                              # → data/merged_data.csv
 python eda/eda_preprocessing.py                     # → data/prepared_data.csv + tft/scalers.pkl
+
+# (опционально) Отчёты
 python report_generating/eda_column_analysis.py     # → reports/column_analysis.md
 python report_generating/tft_report.py              # → reports/tft_report.docx
 
 python tft/prepare_dataset.py        # → tft/training_dataset.pkl + tft/dataset_config.pkl
 
-# (опционально) Настроить гиперпараметры через UI:
-streamlit run dashboard/train_dashboard.py      # → tft/train_config.json (сохраняется кнопкой)
+# Обучение — способ А: консоль
+python tft/train.py                  # → tft/model.ckpt
+# tft/train_config.json подхватывается автоматически если присутствует
 
-python tft/train.py                  # → tft/model.ckpt  (подхватывает tft/train_config.json если есть)
+# Обучение — способ Б: UI (гиперпараметры + живой вывод + кривые потерь)
+# streamlit run dashboard/train_dashboard.py
+# После завершения обучения ЛЮБЫМ способом — обязателен запуск predict.py
 
 python tft/predict.py                # → data/predictions.csv + data/metrics.csv
 
-streamlit run dashboard/app_dashboard.py        # единый дашборд (требует merged_data.csv; остальные файлы graceful)
+streamlit run dashboard/app_dashboard.py   # итоговый дашборд
 
-tensorboard --logdir tft/logs        # в отдельном терминале
+# (опционально) Мониторинг обучения — в отдельном терминале во время train.py
+# tensorboard --logdir tft/logs
 ```
 
 ---
@@ -273,7 +280,7 @@ tensorboard --logdir tft/logs        # в отдельном терминале
 
 **Глобальные фильтры** (вверху страницы, над всеми вкладками):
 - `sel_stations_multi` (Станции) + `sel_months` (Период) → формируют `base_mask` и `df_ov`.
-- Влияют на все 4 главные вкладки. Колонки `[3, 7]`.
+- Влияют на все 4 главные вкладки. Колонки `[1, 1]`.
 - Оформлены секционным заголовком «🌐 ГЛОБАЛЬНЫЕ ФИЛЬТРЫ» с горизонтальным разделителем.
 
 **Фильтры анализа** (верх вкладки «Анализ данных», только в ней):
