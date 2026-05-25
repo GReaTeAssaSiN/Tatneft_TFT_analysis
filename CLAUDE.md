@@ -178,59 +178,66 @@ competitor_price_AI92, competitor_price_AI95, competitor_price_DT
 
 ```
 FinalWorkDashboard/
-├── SourceDataForWork/          — исходные файлы задания, не изменять
-│   ├── 5stations_metadata.csv
-│   ├── 5stations_data.csv
-│   ├── detailed_data.csv
-│   ├── stations_metadata.csv
-│   ├── TFT_анализ.pdf
-│   └── Generation/             — материалы диалога с Claude
+├── SourceDataForWork/           — исходные файлы задания, не изменять
+│   ├── 5stations_metadata.csv   — паспорт 5 АЗС (5 × 32)
+│   ├── 5stations_data.csv       — почасовые данные 2023 г. (43800 × 72)
+│   ├── detailed_data.csv        — те же данные для 25 АЗС (219000 строк)
+│   ├── stations_metadata.csv    — паспорт 25 АЗС
+│   ├── TFT_анализ.pdf           — статья Lim et al. 2020
+│   ├── Задание.docx             — постановка задачи
+│   └── описание данных.docx     — описание переменных датасета
 │
-├── data/                       — генерируются скриптами
-│   ├── merged_data.csv         — JOIN metadata + data (43800 × 89)
-│   ├── prepared_data.csv       — после препроцессинга (43800 × 111)
-│   ├── predictions.csv         — скользящие 24ч прогнозы TFT за декабрь 2023
-│   │                             (pred + q10 + q90 по 12 целям × 5 АЗС; actual для сравнения)
-│   └── metrics.csv             — MAE / RMSE / MAPE по target × station (декабрь 2023)
+├── data/                        — генерируются скриптами, отслеживаются git
+│   ├── merged_data.csv          — JOIN metadata + data (43800 × 89)
+│   ├── prepared_data.csv        — после препроцессинга (43800 × 111)
+│   ├── train.csv                — train-сплит Jan–Oct 2023 (~83.6%)
+│   ├── val.csv                  — val-сплит Nov 2023 (~8.2%)
+│   ├── test.csv                 — test-сплит Dec 2023 (~8.2%)
+│   ├── predictions.csv          — скользящие 24ч прогнозы TFT за декабрь 2023
+│   │                              (pred + q10 + q90 по 12 целям × 5 АЗС; actual для сравнения)
+│   └── metrics.csv              — MAE / RMSE / MAPE по target × station (декабрь 2023)
 │
 ├── eda/
-│   └── eda_preprocessing.py    → data/prepared_data.csv + tft/scalers.pkl
+│   └── eda_preprocessing.py    → prepared_data.csv + train/val/test.csv + tft/scalers.pkl
 │
-├── report_generating/          — скрипты генерации отчётов
+├── report_generating/           — скрипты генерации отчётов (опциональны)
+│   ├── column_descriptions.py  → reports/merged_data_columns.txt
 │   ├── eda_column_analysis.py  → reports/column_analysis.md
 │   └── tft_report.py           → reports/tft_report.docx
 │
 ├── tft/
-│   ├── model.ckpt              — лучшая модель (BestModelSync перезаписывает на лету)
+│   ├── model.ckpt               — лучшая модель (BestModelSync перезаписывает на лету)
+│   ├── train_config.json        — гиперпараметры (создаётся train_dashboard, необязателен)
 │   ├── prepare_dataset.py      → tft/training_dataset.pkl + tft/dataset_config.pkl
-│   ├── train.py                — обучение с BestModelSync + авто-резюм
-│   ├── predict.py              — инференс: скользящие 24ч окна на декабрь →
-│   │                             data/predictions.csv + data/metrics.csv
-│   ├── checkpoints/            — чекпоинты Lightning (monitor=val_loss, save_top_k=1)
-│   └── logs/                   — TensorBoard (tensorboard --logdir tft/logs)
+│   ├── train.py                 — обучение с BestModelSync + авто-резюм
+│   ├── predict.py               — инференс: скользящие 24ч окна на декабрь →
+│   │                              data/predictions.csv + data/metrics.csv
+│   ├── checkpoints/             — чекпоинты Lightning (monitor=val_loss, save_top_k=1)
+│   └── logs/                    — TensorBoard (tensorboard --logdir tft/logs)
 │
 ├── dashboard/
-│   ├── app_dashboard.py        — единый дашборд (4 главные вкладки + подвкладки)
-│   └── train_dashboard.py      — дашборд управления обучением (3 вкладки: гиперпараметры, обучение, результаты)
+│   ├── app_dashboard.py         — итоговый дашборд (4 главные вкладки + подвкладки)
+│   └── train_dashboard.py       — дашборд обучения (3 вкладки: гиперпараметры, обучение, результаты)
 │
 ├── utils/
-│   ├── data_utils.py           — ВСЕ константы проекта (единственный источник истины):
-│   │                             TARGET_COLS, LOG_COLS, STATIC_CATS, STATIC_REALS,
-│   │                             TIME_VARYING_KNOWN_CATS, TIME_VARYING_KNOWN_REALS,
-│   │                             TIME_VARYING_UNKNOWN_REALS, CYCLICAL_FEATURES,
-│   │                             TRAIN_END, VAL_END, TEST_START, TEST_END,
-│   │                             ENCODER_LENGTH, PREDICTION_LENGTH,
-│   │                             QUANTILE_LEVELS, Q_MED, Q_LO, Q_HI
-│   │                             + load_and_merge(), fill_missing(), add_cyclical_encoding()
-│   └── torch_compat.py         — патч torch.load для PyTorch 2.6
+│   ├── data_utils.py            — ВСЕ константы проекта (единственный источник истины):
+│   │                              TARGET_COLS, LOG_COLS, STATIC_CATS, STATIC_REALS,
+│   │                              TIME_VARYING_KNOWN_CATS, TIME_VARYING_KNOWN_REALS,
+│   │                              TIME_VARYING_UNKNOWN_REALS, CYCLICAL_FEATURES,
+│   │                              TRAIN_END, VAL_END, TEST_START, TEST_END,
+│   │                              ENCODER_LENGTH, PREDICTION_LENGTH,
+│   │                              QUANTILE_LEVELS, Q_MED, Q_LO, Q_HI
+│   │                              + load_and_merge(), fill_missing(), add_cyclical_encoding()
+│   └── torch_compat.py          — патч torch.load для PyTorch 2.6
 │
-├── reports/                    — сгенерированные отчёты
-│   ├── column_analysis.md
-│   ├── merged_data_columns.txt — список колонок merged_data.csv с описанием и примерами
-│   └── tft_report.docx
+├── reports/                     — сгенерированные отчёты, отслеживаются git
+│   ├── merged_data_columns.txt  — описание колонок merged_data.csv
+│   ├── column_analysis.md       — анализ переменных по группам TFT
+│   └── tft_report.docx          — DOCX: переменные + препроцессинг + TFT
 │
 ├── explore_data.py             → data/merged_data.csv
 ├── requirements.txt
+├── .gitignore
 └── CLAUDE.md
 ```
 
@@ -244,9 +251,10 @@ pip install -r requirements.txt
 
 # Обязательные шаги
 python explore_data.py                              # → data/merged_data.csv
-python eda/eda_preprocessing.py                     # → data/prepared_data.csv + tft/scalers.pkl
+python eda/eda_preprocessing.py                     # → data/prepared_data.csv + train/val/test.csv + tft/scalers.pkl
 
 # (опционально) Отчёты
+python report_generating/column_descriptions.py     # → reports/merged_data_columns.txt
 python report_generating/eda_column_analysis.py     # → reports/column_analysis.md
 python report_generating/tft_report.py              # → reports/tft_report.docx
 
