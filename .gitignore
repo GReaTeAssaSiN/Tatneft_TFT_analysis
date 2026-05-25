@@ -16,14 +16,6 @@ tft/*.pkl
 # Lightning default logger (создаётся при model.predict без явного logger=False)
 lightning_logs/
 
-# Сгенерированные отчёты отслеживаются (см. reports/)
-
-# Исходные материалы из диалога с Claude (не код)
-SourceDataForWork/Generation/
-
-# Вспомогательные файлы задания (не нужны в репо)
-SourceDataForWork/Небольшое примечание.txt
-
 # Temp-файлы Microsoft Office (~$...)
 ~$*.docx
 ~$*.xlsx
