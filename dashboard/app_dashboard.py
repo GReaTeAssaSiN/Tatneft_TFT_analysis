@@ -1790,13 +1790,22 @@ with tab3:
                     with col_acc:
                         _acc_df = _mf.groupby("target",as_index=False)[_mape_col].mean()
                         _acc_df["name"] = _acc_df["target"].map(lambda x: _tft_all_names.get(x,x))
-                        _acc_df = _acc_df.sort_values(_mape_col)
-                        _bar_colors = [GREEN if v<=10 else (GOLD if v<=20 else RED) for v in _acc_df[_mape_col]]
+                        _acc_df = _acc_df.sort_values(_mape_col, na_position="first")
+                        _bar_colors = [
+                            GRAY if pd.isna(v) else (GREEN if v<=10 else (GOLD if v<=20 else RED))
+                            for v in _acc_df[_mape_col]]
+                        _bar_text = [
+                            "нет продаж" if pd.isna(v) else f"{v:.1f}%"
+                            for v in _acc_df[_mape_col]]
+                        _bar_hover = [
+                            "%{y}: нет данных о продажах<extra></extra>" if pd.isna(v)
+                            else "%{y}: MAPE=%{x:.1f}%<extra></extra>"
+                            for v in _acc_df[_mape_col]]
                         fig_acc = go.Figure(go.Bar(
-                            x=_acc_df[_mape_col].round(1), y=_acc_df["name"], orientation="h",
-                            marker_color=_bar_colors,
-                            text=[f"{v:.1f}%" for v in _acc_df[_mape_col]], textposition="outside",
-                            hovertemplate="%{y}: MAPE=%{x:.1f}%<extra></extra>"))
+                            x=_acc_df[_mape_col].fillna(0).round(1), y=_acc_df["name"],
+                            orientation="h", marker_color=_bar_colors,
+                            text=_bar_text, textposition="outside",
+                            hovertemplate=_bar_hover))
                         fig_acc.add_vline(x=10,line_dash="dash",line_color=GREEN,opacity=0.6)
                         fig_acc.add_vline(x=20,line_dash="dash",line_color=GOLD,opacity=0.6)
                         fig_acc.update_layout(title="Точность по таргетам (MAPE, %)",
