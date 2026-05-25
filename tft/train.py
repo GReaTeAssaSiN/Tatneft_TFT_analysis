@@ -50,6 +50,27 @@ HIDDEN_CONTINUOUS = HIDDEN_SIZE // 2  # рекомендация TFT: hidden_con
 GRADIENT_CLIP = 1.0
 
 # ============================================================
+# Загрузка конфигурации гиперпараметров (tft/train_config.json)
+# Если файл есть — переопределяем дефолты из секции выше.
+# ============================================================
+_PATIENCE = 12  # EarlyStopping patience (default)
+_cfg_path = os.path.join(os.path.dirname(__file__), "train_config.json")
+if os.path.exists(_cfg_path):
+    import json as _json_cfg
+    with open(_cfg_path, encoding="utf-8") as _f:
+        _cfg = _json_cfg.load(_f)
+    BATCH_SIZE       = int(_cfg.get("batch_size",            BATCH_SIZE))
+    EPOCHS           = int(_cfg.get("max_epochs",            EPOCHS))
+    HIDDEN_SIZE      = int(_cfg.get("hidden_size",           HIDDEN_SIZE))
+    ATTN_HEADS       = int(_cfg.get("attention_head_size",   ATTN_HEADS))
+    LEARNING_RATE    = float(_cfg.get("learning_rate",       LEARNING_RATE))
+    DROPOUT          = float(_cfg.get("dropout",             DROPOUT))
+    GRADIENT_CLIP    = float(_cfg.get("gradient_clip",       GRADIENT_CLIP))
+    HIDDEN_CONTINUOUS = int(_cfg.get("hidden_continuous_size", HIDDEN_SIZE // 2))
+    _PATIENCE        = int(_cfg.get("patience",              _PATIENCE))
+    print(f"  Конфиг загружен     : {_cfg_path}")
+
+# ============================================================
 # Параметры обучения
 # ============================================================
 print("=" * 60)
@@ -139,8 +160,6 @@ total_params = sum(p.numel() for p in tft.parameters())
 print(f"  Параметров модели   : {total_params:,}")
 
 # ============================================================
-# Колбэк: синхронизация model.ckpt при каждом новом лучшем чекпоинте
-# ============================================================
 # Callbacks
 # ============================================================
 os.makedirs("tft/checkpoints", exist_ok=True)
@@ -149,25 +168,25 @@ os.makedirs("tft/logs", exist_ok=True)
 # Версионный чекпоинт: имя содержит epoch + val_loss, удобен для восстановления.
 checkpoint_cb = ModelCheckpoint(
     dirpath="tft/checkpoints",
-    filename="tft-{epoch:02d}-{val_loss:.4f}",
+    filename="tft-epoch={epoch:02d}-val_loss={val_loss:.4f}",
     monitor="val_loss",
     mode="min",
     save_top_k=1,
 )
 
-# Фиксированный путь: tft/model.ckpt — перезаписывается Lightning автоматически
-# при каждом новом лучшем val_loss, независимо от того, завершено обучение или нет.
-best_model_cb = ModelCheckpoint(
-    dirpath="tft",
-    filename="model",   # → tft/model.ckpt
-    monitor="val_loss",
-    mode="min",
-    save_top_k=1,
-)
+# BestModelSync: копирует лучший чекпоинт в tft/model.ckpt после каждого улучшения.
+# Заменяет второй ModelCheckpoint — Lightning 2.x не допускает два экземпляра
+# ModelCheckpoint с одинаковым state_key (RuntimeError).
+class BestModelSync(pl.Callback):
+    """Перезаписывает tft/model.ckpt при каждом новом лучшем val_loss."""
+    def on_validation_epoch_end(self, trainer, pl_module):
+        src = checkpoint_cb.best_model_path
+        if src and os.path.exists(src):
+            shutil.copy(src, "tft/model.ckpt")
 
 early_stop_cb = EarlyStopping(
     monitor="val_loss",
-    patience=12,
+    patience=_PATIENCE,
     mode="min",
     verbose=True,
 )
@@ -203,7 +222,8 @@ trainer = pl.Trainer(
     accelerator=ACCELERATOR,
     devices=1,
     gradient_clip_val=GRADIENT_CLIP,
-    callbacks=[checkpoint_cb, best_model_cb, early_stop_cb, lr_monitor],
+    # BestModelSync стоит после checkpoint_cb — чтобы best_model_path уже был обновлён.
+    callbacks=[checkpoint_cb, early_stop_cb, lr_monitor, BestModelSync()],
     enable_model_summary=True,
     # При encoder=168ч / decoder=24ч (~1100 батчей/эпоха на CPU):
     # log_every_n_steps=50 → ~22 точки на эпоху в TensorBoard (достаточно).
@@ -229,8 +249,8 @@ best_path = checkpoint_cb.best_model_path
 print(f"\nЛучший чекпоинт     : {best_path}")
 print(f"Лучший val_loss     : {checkpoint_cb.best_model_score:.4f}")
 
-# tft/model.ckpt уже записан best_model_cb при каждом улучшении val_loss.
-# Финальный fallback на случай если best_model_cb не успел (edge case).
+# BestModelSync копирует model.ckpt на лету при каждом улучшении val_loss.
+# Финальный fallback: если по какой-то причине файл не появился — копируем явно.
 if not os.path.exists("tft/model.ckpt") and best_path:
     shutil.copy(best_path, "tft/model.ckpt")
     print("Сохранено           : tft/model.ckpt (fallback)")
