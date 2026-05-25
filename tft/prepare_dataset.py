@@ -6,6 +6,17 @@
 import os
 import pickle
 import sys
+import warnings
+
+# pytorch_forecasting передаёт read-only ndarray в torch.from_numpy() внутри
+# NaNLabelEncoder — это баг библиотеки, наш код исправить его не может.
+# Предупреждение не влияет на корректность: pytorch_forecasting тут же
+# делает копию массива, так что UB не возникает. Подавляем точечно.
+warnings.filterwarnings(
+    "ignore",
+    message="The given NumPy array is not writable",
+    category=UserWarning,
+)
 
 import numpy as np
 import pandas as pd
@@ -87,13 +98,10 @@ else:
 df["station_id"] = df["station_id"].astype(str)
 
 # Категориальные колонки — строки (pytorch-forecasting строит словарь сам)
+# weather_condition_enc теперь в TIME_VARYING_KNOWN_CATS, а не в unknown_reals
 for col in STATIC_CATS + TIME_VARYING_KNOWN_CATS:
     if col in df.columns:
         df[col] = df[col].astype(str)
-
-# weather_condition_enc идёт в unknown_reals как вещественное
-if "weather_condition_enc" in df.columns:
-    df["weather_condition_enc"] = df["weather_condition_enc"].astype(float)
 
 # ============================================================
 # Предобучение категориальных энкодеров на полном датафрейме
@@ -142,10 +150,10 @@ training = TimeSeriesDataSet(
     time_idx="time_idx",
     target=TARGET_COLS,
     group_ids=["station_id"],
-    min_encoder_length=ENCODER_LENGTH // 2,  # мин. 3.5 суток
-    max_encoder_length=ENCODER_LENGTH,  # макс. 7 суток
+    min_encoder_length=ENCODER_LENGTH // 2,  # мин. 3.5 суток (84 ч)
+    max_encoder_length=ENCODER_LENGTH,        # макс. 7 суток (168 ч)
     min_prediction_length=1,
-    max_prediction_length=PREDICTION_LENGTH,  # 24 часа
+    max_prediction_length=PREDICTION_LENGTH,  # до 1 суток (24 ч)
     static_categoricals=STATIC_CATS,
     static_reals=STATIC_REALS,
     time_varying_known_categoricals=TIME_VARYING_KNOWN_CATS,
@@ -166,7 +174,8 @@ training = TimeSeriesDataSet(
 
 print(f"  Обучающих сэмплов: {len(training)}")
 print(
-    f"  Параметры окна   : encoder={ENCODER_LENGTH}ч, prediction={PREDICTION_LENGTH}ч"
+    f"  Параметры окна   : encoder={ENCODER_LENGTH}ч ({ENCODER_LENGTH//24} сут.), "
+    f"prediction={PREDICTION_LENGTH}ч ({PREDICTION_LENGTH//24} сут.)"
 )
 
 # ============================================================

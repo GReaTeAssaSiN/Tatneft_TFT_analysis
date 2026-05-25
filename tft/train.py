@@ -46,7 +46,7 @@ else:
 
 LEARNING_RATE = 3e-4
 DROPOUT = 0.15
-HIDDEN_CONTINUOUS = 64
+HIDDEN_CONTINUOUS = HIDDEN_SIZE // 2  # рекомендация TFT: hidden_continuous <= hidden_size / 2
 GRADIENT_CLIP = 1.0
 
 # ============================================================
@@ -78,8 +78,11 @@ with open("tft/dataset_config.pkl", "rb") as f:
     config = pickle.load(f)
 
 print(f"  Целевые переменные  : {config['target_cols']}")
-print(f"  Encoder length      : {config['encoder_length']} ч")
-print(f"  Prediction length   : {config['prediction_length']} ч")
+enc_h = config['encoder_length']
+pred_h = config['prediction_length']
+print(f"  Encoder length      : {enc_h} ч ({enc_h // 24} сут.)")
+print(f"  Prediction length   : {pred_h} ч ({pred_h // 24} сут.)")
+print(f"  Горизонт прогноза   : {pred_h}ш = 1 сутки (24 часовых шага)")
 print(f"  Станций             : {config['n_stations']}")
 
 # ============================================================
@@ -126,7 +129,9 @@ tft = TemporalFusionTransformer.from_dataset(
     dropout=DROPOUT,
     hidden_continuous_size=HIDDEN_CONTINUOUS,
     loss=QuantileLoss(),
-    log_interval=10,
+    # log_interval: каждые N шагов пишет prediction-графики в TensorBoard.
+    # При encoder=168ч / decoder=24ч батчи лёгкие → 20 шагов даёт достаточную частоту.
+    log_interval=20,
     reduce_on_plateau_patience=5,
 )
 
@@ -136,39 +141,28 @@ print(f"  Параметров модели   : {total_params:,}")
 # ============================================================
 # Колбэк: синхронизация model.ckpt при каждом новом лучшем чекпоинте
 # ============================================================
-
-class BestModelSync(pl.Callback):
-    """Перезаписывает tft/model.ckpt каждый раз, когда ModelCheckpoint
-    сохраняет новый лучший чекпоинт — без ожидания конца обучения."""
-
-    def __init__(self, checkpoint_cb: ModelCheckpoint, dest: str = "tft/model.ckpt"):
-        self.checkpoint_cb = checkpoint_cb
-        self.dest = dest
-        self._last_synced: str = ""
-
-    def on_validation_epoch_end(self, trainer: pl.Trainer, pl_module) -> None:
-        best = self.checkpoint_cb.best_model_path
-        if best and os.path.exists(best) and best != self._last_synced:
-            shutil.copy(best, self.dest)
-            self._last_synced = best
-            score = self.checkpoint_cb.best_model_score
-            print(f"  → model.ckpt обновлён  "
-                  f"[epoch {trainer.current_epoch}  val_loss={score:.4f}]")
-
-
-# ============================================================
 # Callbacks
 # ============================================================
 os.makedirs("tft/checkpoints", exist_ok=True)
 os.makedirs("tft/logs", exist_ok=True)
 
+# Версионный чекпоинт: имя содержит epoch + val_loss, удобен для восстановления.
 checkpoint_cb = ModelCheckpoint(
     dirpath="tft/checkpoints",
     filename="tft-{epoch:02d}-{val_loss:.4f}",
     monitor="val_loss",
     mode="min",
     save_top_k=1,
-    verbose=True,
+)
+
+# Фиксированный путь: tft/model.ckpt — перезаписывается Lightning автоматически
+# при каждом новом лучшем val_loss, независимо от того, завершено обучение или нет.
+best_model_cb = ModelCheckpoint(
+    dirpath="tft",
+    filename="model",   # → tft/model.ckpt
+    monitor="val_loss",
+    mode="min",
+    save_top_k=1,
 )
 
 early_stop_cb = EarlyStopping(
@@ -179,7 +173,6 @@ early_stop_cb = EarlyStopping(
 )
 
 lr_monitor = LearningRateMonitor(logging_interval="epoch")
-sync_cb = BestModelSync(checkpoint_cb)
 
 tb_logger = TensorBoardLogger("tft/logs", name="tft_model")
 
@@ -210,9 +203,15 @@ trainer = pl.Trainer(
     accelerator=ACCELERATOR,
     devices=1,
     gradient_clip_val=GRADIENT_CLIP,
-    callbacks=[checkpoint_cb, early_stop_cb, lr_monitor, sync_cb],
+    callbacks=[checkpoint_cb, best_model_cb, early_stop_cb, lr_monitor],
     enable_model_summary=True,
-    log_every_n_steps=10,
+    # При encoder=168ч / decoder=24ч (~1100 батчей/эпоха на CPU):
+    # log_every_n_steps=50 → ~22 точки на эпоху в TensorBoard (достаточно).
+    # num_sanity_val_steps=1 → 1 батч для проверки val pipeline вместо 2.
+    # precision="32-true" → явный float32, убирает предупреждение Lightning.
+    log_every_n_steps=50,
+    num_sanity_val_steps=1,
+    precision="32-true",
     logger=tb_logger,
 )
 
@@ -224,15 +223,19 @@ trainer.fit(
 )
 
 # ============================================================
-# Сохранение лучшей модели
+# Итог
 # ============================================================
 best_path = checkpoint_cb.best_model_path
 print(f"\nЛучший чекпоинт     : {best_path}")
 print(f"Лучший val_loss     : {checkpoint_cb.best_model_score:.4f}")
 
-if best_path and not os.path.exists("tft/model.ckpt"):
+# tft/model.ckpt уже записан best_model_cb при каждом улучшении val_loss.
+# Финальный fallback на случай если best_model_cb не успел (edge case).
+if not os.path.exists("tft/model.ckpt") and best_path:
     shutil.copy(best_path, "tft/model.ckpt")
-    print(f"Сохранено           : tft/model.ckpt (финальный fallback)")
+    print("Сохранено           : tft/model.ckpt (fallback)")
+else:
+    print("Сохранено           : tft/model.ckpt ✓")
 
 print("\n" + "=" * 60)
 print("Готово.")

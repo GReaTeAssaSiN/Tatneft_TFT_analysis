@@ -4,7 +4,7 @@
 
 Мультицелевая TFT-модель (Temporal Fusion Transformer, Lim et al. 2020) для
 прогнозирования почасовых продаж топлива и товаров магазина сети АЗС Татнефть.
-Горизонт: 24 часа. Ретроспектива: 168 часов (7 суток). 12 целевых переменных совместно.
+Горизонт: 24 часа (1 сутки). Ретроспектива: 168 часов (7 суток). 12 целевых переменных совместно.
 
 ---
 
@@ -47,58 +47,58 @@
 road_type_enc, direction_enc, settlement_size_enc
 ```
 
-### STATIC_REALS (27 переменных)
-Статические вещественные — паспортные данные АЗС. Не winsoriz-уются, не нормализуются:
+### STATIC_REALS (26 переменных)
+Статические вещественные — паспортные данные АЗС. Не нормализуются:
 ```
-distance_to_city_km, total_pumps, shop_area_m2,
+distance_to_city_km, shop_area_m2,
 num_pumps_AI92/95/98/DT_EURO/DT_TANEKO/DT_SUMMER/DT_WINTER,
 has_car_wash, has_tire_service, has_cafe, has_hotel, has_shop,
 competitors_within_5km, customer_loyalty_score, staff_quality_score,
 corporate_customer_ratio, staff_engagement_score,
 base_price_AI92/95/98/DT_EURO/DT_TANEKO/DT_SUMMER/DT_WINTER
 ```
+`total_pumps` исключён (= sum(num_pumps_*), дублирует детальные колонки).
 
 ### TIME_VARYING_KNOWN_CATS (4 переменных)
-Известные будущие категориальные — планируются заранее:
+Известные будущие категориальные — задаются заранее или в what-if:
 ```
-season_enc, day_name_enc, ad_channel_enc, holiday_name_enc
+season_enc, weather_condition_enc, ad_channel_enc, holiday_name_enc
 ```
+`day_name_enc` удалён (дублирует day_of_week, уже есть в KNOWN_REALS с sin/cos).
+`weather_condition_enc` перенесён из UNKNOWN → что-если тип погоды.
 
-### TIME_VARYING_KNOWN_REALS (28 переменных)
+### TIME_VARYING_KNOWN_REALS (44 переменных)
 Известные будущие вещественные — декодер TFT принимает эти переменные для горизонта прогноза.
-Только эти переменные можно менять в сценарном what-if анализе:
+Всё, что задаётся в what-if сценарии, должно быть здесь:
 ```
 # Циклические временные признаки (raw + sin/cos)
 hour, hour_sin, hour_cos,
 day_of_week, day_of_week_sin, day_of_week_cos,
 week_of_year, week_of_year_sin, week_of_year_cos,
 month, month_sin, month_cos,
-quarter,
 # Бинарные флаги
 is_weekend, is_holiday, is_rush_hour, is_night,
+is_shop_open,                 # производный: 1 = 05:00–21:00, 0 = 22:00–04:00
 # Акции и реклама
 promotion_fuel_active, promotion_shop_active, promotion_cafe_active, ad_active,
-# Текущие цены топлива (устанавливаются заранее)
+# Текущие цены топлива (постоянны per-station в 2023 г.; передаются без Z-score)
 price_AI92, price_AI95, price_AI98,
-price_DT_EURO, price_DT_TANEKO, price_DT_SUMMER, price_DT_WINTER
-```
-
-### TIME_VARYING_UNKNOWN_REALS (19 + 12 = 31 переменная)
-Наблюдаемые прошлые — энкодер видит их только за прошлые 168ч, декодер НЕ принимает.
-Погода и трафик здесь — what-if по ним невозможен без переобучения:
-```
-# Погода
+price_DT_EURO, price_DT_TANEKO, price_DT_SUMMER, price_DT_WINTER,
+# Погода (по метеопрогнозу; what-if: снег/ясно/дождь/температура)
 temperature, precipitation_mm, visibility_km, wind_speed_ms,
-is_snow, is_rain, is_fog, weather_condition_enc,
-# Трафик по типам ТС
+is_snow, is_rain, is_fog,
+# Трафик по типам ТС (прогнозируется службами дорожного движения)
 traffic_Passengers_cars, traffic_Truck_short, traffic_Truck,
-traffic_Truck_long, traffic_Transporter, traffic_Undefined, total_traffic,
-# Магазин (общая выручка)
-shop_total_revenue,
-# Цены конкурентов
-competitor_price_AI92, competitor_price_AI95, competitor_price_DT,
-# + все TARGET_COLS (авторегрессивные входы)
+traffic_Truck_long, traffic_Transporter, traffic_Undefined,
+# Цены конкурентов (мониторинг; what-if: снижение/рост)
+competitor_price_AI92, competitor_price_AI95, competitor_price_DT
 ```
+`quarter` удалён (выводится из month). `total_traffic` исключён (несогласован с индивидуальными).
+
+### TIME_VARYING_UNKNOWN_REALS (0 переменных)
+Намеренно пусто. Все ковариаты перенесены в KNOWN для поддержки what-if анализа.
+Целевые переменные (авторегрессивные входы энкодера) TFT добавляет автоматически
+через параметр `target=TARGET_COLS` в TimeSeriesDataSet.
 
 ---
 
@@ -107,21 +107,27 @@ competitor_price_AI92, competitor_price_AI95, competitor_price_DT,
 Порядок шагов строго фиксирован:
 
 1. **Пропуски**: `holiday_name → "нет_праздника"`, `ad_channel → "нет_рекламы"`
-2. **Winsorization** выбросов по IQR — строки не удаляются (временной ряд непрерывен).
-   Исключены: бинарные переменные, STATIC_REALS (паспортные данные не меняются).
+2. **Исключение избыточных колонок**: 7 столбцов удаляются из датафрейма
+   (`EXCLUDED_COLS` из `utils/data_utils.py`). Winsorization не применяется —
+   не описана в статье TFT; TorchNormalizer(robust) обрабатывает выбросы целей.
+   После исключения добавляется производный признак `is_shop_open` (1: 05:00–21:00, 0: 22:00–04:00) —
+   стабилизирует нулевые продажи shop_* ночью. Добавляется до вычисления binary_cols,
+   чтобы автоматически исключиться из Z-score нормализации.
 3. **Label Encoding** категориальных → суффикс `_enc`.
    TFT строит эмбеддинги сам через NaNLabelEncoder.
 4. **Циклическое кодирование**: `hour/day_of_week/month/week_of_year → _sin/_cos`.
    Решает разрыв 23:00 → 00:00: на числовой оси далеко, на окружности рядом.
 5. **time_idx**: монотонный порядковый номер часа per-station через cumcount.
-6. **log1p**: все 12 целевых + `shop_total_revenue`. Оригинал сохраняется в `_orig`.
+6. **log1p**: только 12 целевых переменных (LOG_COLS = TARGET_COLS).
+   Оригинал сохраняется в `_orig`. `shop_total_revenue` исключена из модели.
 7. **Z-score** нормализация per-station для числовых переменных.
-   Исключены: STATIC_REALS, бинарные, `_enc`, `_orig`, LOG_COLS.
+   Исключены: STATIC_REALS, бинарные, `_enc`, `_orig`, LOG_COLS (цели),
+   а также `NO_ZSCORE_COLS` (`price_*` — константны per-station в 2023 г., std=0).
    LOG_COLS исключены — TorchNormalizer в TFT нормализует цели отдельно.
 8. **Скейлеры**: `tft/scalers.pkl` — `{station_id: {col: (mean, std)}}` + `log1p_cols`.
    Используются в `predict.py` для обратного преобразования.
 
-Результат: `data/prepared_data.csv` (43800 × 119).
+Результат: `data/prepared_data.csv` (43800 × 111).
 
 ---
 
@@ -145,12 +151,13 @@ competitor_price_AI92, competitor_price_AI95, competitor_price_DT,
 |---|---|---|
 | `hidden_size` | 64 | 128 |
 | `attention_head_size` | 2 | 4 |
-| `hidden_continuous_size` | 64 | 64 |
+| `hidden_continuous_size` | 32 | 64 |
 | `BATCH_SIZE` | 32 | 64 |
 | `EPOCHS` | 50 | 80 |
 
 Общие параметры:
-- `ENCODER_LENGTH = 168` ч, `PREDICTION_LENGTH = 24` ч
+- `ENCODER_LENGTH = 168` ч (7 суток), `PREDICTION_LENGTH = 24` ч (1 сутки).
+  Горизонт оперативного прогноза: следующие сутки (24 шага).
 - `learning_rate = 3e-4`, `dropout = 0.15`, `gradient_clip = 1.0`
 - `EarlyStopping(patience=12, monitor="val_loss")`
 - `ReduceLROnPlateau(patience=5)`
@@ -181,27 +188,29 @@ FinalWorkDashboard/
 │
 ├── data/                       — генерируются скриптами
 │   ├── merged_data.csv         — JOIN metadata + data (43800 × 89)
-│   ├── prepared_data.csv       — после препроцессинга (43800 × 119)
-│   ├── predictions.csv         — прогнозы TFT на декабрь 2023
-│   └── metrics.csv             — MAE/RMSE/MAPE по target × station
+│   ├── prepared_data.csv       — после препроцессинга (43800 × 111)
+│   ├── predictions.csv         — скользящие 24ч прогнозы TFT за декабрь 2023
+│   │                             (pred + q10 + q90 по 12 целям × 5 АЗС; actual для сравнения)
+│   └── metrics.csv             — MAE / RMSE / MAPE по target × station (декабрь 2023)
 │
 ├── eda/
+│   └── eda_preprocessing.py    → data/prepared_data.csv + tft/scalers.pkl
+│
+├── report_generating/          — скрипты генерации отчётов
 │   ├── eda_column_analysis.py  → reports/column_analysis.md
-│   ├── eda_preprocessing.py    → data/prepared_data.csv + tft/scalers.pkl
 │   └── tft_report.py           → reports/tft_report.docx
 │
 ├── tft/
 │   ├── model.ckpt              — лучшая модель (BestModelSync перезаписывает на лету)
 │   ├── prepare_dataset.py      → tft/training_dataset.pkl + tft/dataset_config.pkl
 │   ├── train.py                — обучение с BestModelSync + авто-резюм
-│   ├── predict.py              → data/predictions.csv + data/metrics.csv
+│   ├── predict.py              — инференс: скользящие 24ч окна на декабрь →
+│   │                             data/predictions.csv + data/metrics.csv
 │   ├── checkpoints/            — чекпоинты Lightning (monitor=val_loss, save_top_k=1)
 │   └── logs/                   — TensorBoard (tensorboard --logdir tft/logs)
 │
 ├── dashboard/
-│   ├── eda_dashboard.py        — EDA по исходным данным (6 вкладок)
-│   ├── forecast_dashboard.py   — прогнозы + сценарии (4 вкладки)
-│   └── tft_interpretation.py  — VSN-веса + temporal attention (3 вкладки)
+│   └── app_dashboard.py        — единый дашборд (4 главные вкладки + подвкладки)
 │
 ├── utils/
 │   ├── data_utils.py           — ВСЕ константы проекта (единственный источник истины):
@@ -214,8 +223,9 @@ FinalWorkDashboard/
 │   │                             + load_and_merge(), fill_missing(), add_cyclical_encoding()
 │   └── torch_compat.py         — патч torch.load для PyTorch 2.6
 │
-├── reports/
+├── reports/                    — сгенерированные отчёты
 │   ├── column_analysis.md
+│   ├── merged_data_columns.txt — список колонок merged_data.csv с описанием и примерами
 │   └── tft_report.docx
 │
 ├── explore_data.py             → data/merged_data.csv
@@ -231,135 +241,89 @@ FinalWorkDashboard/
 python -m venv venv && venv\Scripts\activate
 pip install -r requirements.txt
 
-python explore_data.py               # → data/merged_data.csv
-python eda/eda_column_analysis.py    # → reports/column_analysis.md
-python eda/eda_preprocessing.py      # → data/prepared_data.csv + tft/scalers.pkl
-python eda/tft_report.py             # → reports/tft_report.docx
+python explore_data.py                              # → data/merged_data.csv
+python eda/eda_preprocessing.py                     # → data/prepared_data.csv + tft/scalers.pkl
+python report_generating/eda_column_analysis.py     # → reports/column_analysis.md
+python report_generating/tft_report.py              # → reports/tft_report.docx
 
 python tft/prepare_dataset.py        # → tft/training_dataset.pkl + tft/dataset_config.pkl
 python tft/train.py                  # → tft/model.ckpt
 
 python tft/predict.py                # → data/predictions.csv + data/metrics.csv
 
-streamlit run dashboard/eda_dashboard.py
-streamlit run dashboard/forecast_dashboard.py   # требует predictions.csv + metrics.csv
-streamlit run dashboard/tft_interpretation.py   # требует tft/model.ckpt
+streamlit run dashboard/app_dashboard.py        # единый дашборд (требует merged_data.csv; остальные файлы graceful)
 
 tensorboard --logdir tft/logs        # в отдельном терминале
 ```
 
 ---
 
-## Дашборд EDA (eda_dashboard.py)
+## Единый дашборд (app_dashboard.py)
 
-Загружает `data/merged_data.csv`. Если файл отсутствует — `st.error` + `st.stop()`.
+Загружает `merged_data.csv` (обязателен). `prepared_data.csv`, `predictions.csv`,
+`metrics.csv`, `tft/scalers.pkl`, `tft/model.ckpt` — опциональны; отсутствие любого
+даёт информативное сообщение, функционал деградирует gracefully.
 
-Глобальный фильтр: Станция (Все / АЗС-001..005) + Показатель.
+### Система фильтров (двухуровневая)
 
-**6 вкладок:**
+**Глобальные фильтры** (вверху страницы, над всеми вкладками):
+- `sel_stations_multi` (Станции) + `sel_months` (Период) → формируют `base_mask` и `df_ov`.
+- Влияют на все 4 главные вкладки. Колонки `[3, 7]`.
+- Оформлены секционным заголовком «🌐 ГЛОБАЛЬНЫЕ ФИЛЬТРЫ» с горизонтальным разделителем.
 
-| Вкладка | Содержимое |
-|---|---|
-| Паттерны продаж | Продажи по месяцам (area), часам суток (area), дням недели (bar); тепловая карта час × день |
-| Сравнение АЗС | Суммарные продажи по станциям; структура топлива; динамика по неделям; характеристики (тип дороги, расстояние, сервисы) |
-| Погода и трафик | Scatter: температура/осадки vs продажи; типы ТС vs продажи |
-| Акции и реклама | Boxplot: с акцией vs без; bar по каналам рекламы; эффект праздников |
-| Корреляции | Матрица корреляций факторов с продажами; топ факторов по силе |
-| Статистический анализ | Распределения целевых (до/после log1p); корреляции по группам; таблица выбросов |
+**Фильтры анализа** (верх вкладки «Анализ данных», только в ней):
+- `adv_fuels` + `adv_shops` — строка из двух колонок.
+- Expander «🔍 Дополнительные фильтры»: Сезон, Тип дня, Праздники, Акции, Погода,
+  Тип дороги, Направление, Расстояние до города, Населённый пункт.
+- Формируют `adv_mask` и `fdf`. Не влияют на `df_ov` и другие вкладки.
 
----
+**Фильтры вкладок Прогноз TFT и Рекомендации** — собственные независимые:
+- Станция + Показатель (из TARGET_COLS); работают с `predictions.csv`/`metrics.csv`.
 
-## Дашборд прогнозов TFT (forecast_dashboard.py)
+### 4 главные вкладки
 
-Загружает `merged_data.csv` (обязателен), `prepared_data.csv`, `predictions.csv`,
-`metrics.csv`, `tft/scalers.pkl`. Отсутствие любого — информационное сообщение,
-функционал деградирует gracefully.
+**tab1 — Обзор**
+- KPI-строка: продажи топлива, выручка магазина, ср. трафик/ч, кол-во станций, пиковый месяц.
+- Подвкладки: Паттерны продаж · Сравнение АЗС · Акции & Реклама.
+- Паттерны продаж: area-чарты, bar, сезонный bar, структура магазина,
+  `st.radio(horizontal=True)` для тепловой карты. Данные — `df_ov`.
 
-Глобальный фильтр (две колонки вверху страницы): **Станция** + **Показатель**.
-Фильтр единый для всех вкладок, включая сценарный анализ (дублирующих selectbox нет).
+**tab2 — Анализ данных**
+- Фильтры анализа сверху (см. выше), затем `fdf`.
+- Подвкладки: Погода & Трафик · Акции & Реклама · Корреляции · Статистика.
+- Корреляции: матрица, топ-5 факторов (`st.radio` горизонтальный для выбора топлива).
 
-**4 вкладки:**
+**tab3 — Прогноз TFT**
+- Фильтры Станция + Показатель вверху таба.
+- Подвкладки: Метрики & Точность · Прогноз vs Факт · Сценарий (What-if) · Интерпретация VSN.
+- Сценарий: горизонт 1/7/30 дней; `build_future_ctx` для дат за пределами декабря 2023.
+  Легенда графика — под осью X (`y=-0.2`, `margin=dict(b=70)`).
+  Кнопка «Рассчитать» выровнена через `st.markdown("&nbsp;")` спейсер.
+- Интерпретация VSN: собственные фильтры период + станция; VSN-веса, temporal attention.
 
-### Обзор 2023
-- KPI-карточки: суммарные продажи за год, лучший месяц, лидирующая станция.
-- **Блок точности модели** (если есть metrics.csv + predictions.csv):
-  - Медианная точность = `100 - median(MAPE_%)` по всем целям и станциям
-  - R² = медиана по целям, вычислен из pred_df: `1 - SS_res/SS_tot`
-  - Кол-во целей с MAPE ≤ 15%
-  - Bar-chart точности по каждой цели: NaN (нет продаж) → серый столбик "N/A",
-    valid → цвет по порогу (green ≤85%, gold ≤90%, red >90%). hovertemplate явный.
-- Временные паттерны: помесячный тренд, почасовой профиль, по дням недели.
+**tab4 — Рекомендации**
+- Фильтры Станция + Показатель (собственные).
+- EDA-рекомендации 2023: MAPE-надёжность, акционный рычаг, рекламный канал,
+  окно спроса, лучший день, трафик как сигнал.
+- Stale-check: блок результатов сценария скрывается при смене фильтра.
 
-### Прогноз TFT
-- График прогноз vs факт для декабря 2023 с доверительным интервалом q10–q90.
-- KPI по выбранной цели и станции: MAE, RMSE, MAPE.
-- Scatter прогноз vs факт + OLS trend line.
-- Гистограмма ошибок (pred − actual).
-- Тепловая карта MAPE по станциям × целям.
-
-### Факторный анализ
-Использует `merged_df` или `pred_df` (декабрь). Под-вкладки:
-- **Акции & Реклама**: boxplot с/без акции, bar по каналам рекламы, праздники.
-- **Трафик**: scatter трафик vs продажи, корреляция типов ТС.
-- **Погода**: scatter температура/осадки vs продажи.
-- **Цены конкурентов**: scatter конкурентные цены vs продажи.
-- Общий hourly-профиль по выбранной цели.
-
-### Сценарий & Рекомендации
-Два столбца равной ширины:
-
-**Левый (sc_col) — What-if анализ:**
-- Использует глобальные фильтры (Станция + Показатель) — отдельных selectbox нет.
-- При "Все станции": `st.info` + кнопка задизаблена.
-- Параметры: дата (Dec 2023 – Jan 2024), час, тумблеры акций (топливо / магазин),
-  реклама (toggle + канал), слайдер цены ±12% от медианы (только для топливных целей).
-- Дата Jan 2024 или выход за Dec 2023 → синтетический контекст через `build_future_ctx`
-  (реальные последние 168ч декабря + синтетический декодер).
-- Прогресс-бар 4 шага. Результат: KPI (выбранный час / среднее 24ч / пик) + график.
-- Если не синтетический → сравнение со baseline из `predictions.csv`.
-- После успешного запуска результаты сохраняются в `st.session_state["sc_result"]`.
-
-**Правый (rec_col) — Рекомендации:**
-- Верхний блок "Результат сценария" (из `session_state`) — показывается только если
-  `sc_tgt == sel_target` и `sc_st == sel_station` (stale-check при смене фильтра).
-  Карточки: Сценарий vs базовый (±%), Активные стимулы, Ценовое воздействие, Пик.
-- Нижний блок — статические EDA-рекомендации по данным 2023 г.:
-  Надёжность прогноза (MAPE → совет), Акционный рычаг (+ или − %),
-  Оптимальный рекламный канал (gain vs худший), Окно высокого спроса (часы),
-  Лучший день для акций (lift %), Трафик как сигнал (r → совет).
-
----
-
-## Дашборд интерпретации TFT (tft_interpretation.py)
-
-Загружает `tft/model.ckpt` + `data/prepared_data.csv`. При отсутствии — `st.error` + `st.stop()`.
-
-Фильтры: период (диапазон дат), станция.
-
-**3 вкладки (VSN-веса):**
-- **Статические признаки АЗС** — важность STATIC_CATS + STATIC_REALS
-- **Прошлые наблюдения (Encoder)** — важность TIME_VARYING_UNKNOWN_REALS
-- **Известные будущие (Decoder)** — важность TIME_VARYING_KNOWN_REALS + KNOWN_CATS
-
-Плюс: temporal self-attention — паттерн внимания на прошлые часы.
 
 ---
 
 ## Цветовая схема (тёмная тема, inlined CSS)
 
 ```python
-GREEN   = "#00853E"   # акцент KPI, позитивные карточки
-GOLD    = "#F59E0B"   # основные данные (area, scatter)
-TEAL    = "#2DD4BF"   # вторичные ряды, нейтральные карточки
-RED     = "#F87171"   # ошибки, негативные отклонения
-BLUE    = "#60A5FA"   # станции в palette, рекламный канал
-GRAY    = "#8B949E"   # muted, вторичный текст, N/A бары
-CARD_BG = "#1C2532"   # фон карточек
-SEC_LINE= "#334155"   # разделители секций
-TEXT    = "#E6EDF3"   # основной текст
+GOLD        = "#c8a84b"   # основные данные (area, scatter), заголовки акцентов
+GREEN       = "#4ECB71"   # позитивные KPI, метрики в норме
+RED         = "#E24B4A"   # ошибки, негативные отклонения
+BLUE        = "#2E75B6"   # вторичные ряды, рекламный канал
+TEAL        = "#1ABC9C"   # нейтральные карточки, заголовок фильтров анализа
+GRAY        = "#8B949E"   # muted, вторичный текст, подписи фильтров
+GRID_COLOR  = "#1e2235"   # сетка графиков, рамки popover
+CARD_BG     = "#13161f"   # фон KPI-карточек и Plotly-графиков
 ```
 
-UI-компоненты: `kpi()`, `sec()`, `banner()`, `rec_card()`, `chart_layout()` —
+UI-компоненты: `kpi_card()`, `sfig()`, `add_regline()` —
 кастомные функции с inlined HTML/CSS (без внешних CSS-классов).
 
 ---
@@ -374,8 +338,9 @@ UI-компоненты: `kpi()`, `sec()`, `banner()`, `rec_card()`, `chart_layo
    "что если завтра метель" невозможно без переноса в known и переобучения.
    Статические переменные — зашиты в веса модели, менять без переобучения бессмысленно.
 
-3. **Единый фильтр**: forecast_dashboard использует два глобальных selectbox (Станция +
-   Показатель) для всех вкладок. Сценарный анализ не имеет своих дублирующих selectbox.
+3. **Двухуровневые фильтры**: глобальные (Станции + Период) влияют на все вкладки через
+   `df_ov`. Фильтры анализа (топливо, магазин, 9 доп. условий) живут внутри вкладки
+   «Анализ данных» и формируют `fdf` — не затрагивая остальные вкладки.
 
 4. **Graceful degradation**: каждый файл данных проверяется при загрузке; отсутствие
    любого файла даёт информативное сообщение, не краш.

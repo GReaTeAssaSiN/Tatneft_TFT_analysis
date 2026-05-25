@@ -70,13 +70,15 @@ for col in config["static_cats"] + config["known_cats"]:
     if col in df.columns:
         df[col] = df[col].astype(str)
 
-# Encoder использует ноябрь как контекст, предсказываем декабрь
-CONTEXT_START = pd.Timestamp("2023-11-01 00:00:00")
+# Контекст: ENC_LEN часов до декабря (для первых декабрьских окон) + весь декабрь
 # TEST_START, TEST_END импортированы из utils.data_utils
+CONTEXT_START = TEST_START - pd.Timedelta(hours=ENC_LEN)
 
 test_df = df[df["timestamp"] >= CONTEXT_START].copy()
-print(f"\nКонтекст  : {CONTEXT_START.date()} — {test_df['timestamp'].max().date()}")
-print(f"Прогноз   : декабрь 2023")
+print(f"\nСкользящие окна: encoder={ENC_LEN}ч → decoder=24ч")
+print(f"  Первое окно  : {CONTEXT_START.date()} – {(TEST_START - pd.Timedelta(hours=1)).date()} → прогноз {TEST_START.date()}")
+print(f"  Последнее    : {(TEST_END - pd.Timedelta(hours=ENC_LEN)).date()} – {(TEST_END - pd.Timedelta(hours=1)).date()} → прогноз {TEST_END.date()}")
+print(f"  Декабрь      : {TEST_START.date()} — {TEST_END.date()}")
 
 testing = TimeSeriesDataSet.from_dataset(training, test_df, stop_randomization=True)
 test_loader = testing.to_dataloader(
@@ -199,9 +201,8 @@ actual_df = df[(df["timestamp"] >= TEST_START) & (df["timestamp"] <= TEST_END)][
     ["station_id", "timestamp"] + TARGET_COLS
 ].copy()
 
-for col in TARGET_COLS:
-    actual_df[col] = np.expm1(actual_df[col].clip(lower=0))
-    actual_df = actual_df.rename(columns={col: f"{col}_actual"})
+actual_df[TARGET_COLS] = np.expm1(actual_df[TARGET_COLS].clip(lower=0))
+actual_df = actual_df.rename(columns={col: f"{col}_actual" for col in TARGET_COLS})
 
 pred_df = pred_df.merge(actual_df, on=["station_id", "timestamp"], how="left")
 
@@ -260,6 +261,6 @@ print(f"\nСохранено : data/metrics.csv")
 print("\n" + "=" * 60)
 print("Готово.")
 print("  Сохранено : data/predictions.csv, data/metrics.csv")
-print("  Следующий шаг: streamlit run dashboard/eda_dashboard.py")
-print("              или: streamlit run dashboard/forecast_dashboard.py  (после создания)")
+print("  Следующий шаг: streamlit run dashboard/forecast_dashboard.py")
+print("              или: streamlit run dashboard/tft_interpretation.py")
 print("=" * 60)

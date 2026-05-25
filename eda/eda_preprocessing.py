@@ -23,8 +23,10 @@ from sklearn.preprocessing import LabelEncoder
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils.data_utils import (
     CYCLICAL_FEATURES,
+    EXCLUDED_COLS,
     FILL_MAP,
     LOG_COLS,
+    NO_ZSCORE_COLS,
     STATIC_REALS,
     TARGET_COLS,
     TRAIN_END,
@@ -58,46 +60,48 @@ for col, n in nulls_before.items():
 print(f"  Пропусков после: {df.isnull().sum().sum()}")
 
 # ============================================================
-# Шаг 2. Winsorization выбросов (IQR)
+# Шаг 2. Исключение избыточных колонок
 # ============================================================
-print("\n[2/8] Winsorization выбросов (метод IQR)...")
+print("\n[2/8] Исключение избыточных колонок из модели...")
 
+excluded_present = [c for c in EXCLUDED_COLS if c in df.columns]
+df = df.drop(columns=excluded_present)
+
+print(f"  Исключено {len(excluded_present)} колонок:")
+for col in excluded_present:
+    print(f"    - {col}")
+print(f"  Осталось в датафрейме: {df.shape[1]} колонок")
+
+# Производный бинарный признак: магазин открыт с 05:00 до 21:00 включительно.
+# Стабилизирует нулевые продажи shop_* ночью: модель явно знает «закрыто».
+# Добавляем ДО вычисления binary_cols, чтобы is_shop_open попал в binary_cols
+# и автоматически исключился из Z-score нормализации.
+df["is_shop_open"] = ((df["hour"] >= 5) & (df["hour"] <= 21)).astype(int)
+print(f"  is_shop_open: 1 = 05:00-21:00, 0 = 22:00-04:00")
+
+# Вспомогательные множества для шагов 3 и 7
 num_cols = df.select_dtypes(include=["number"]).columns.tolist()
 binary_cols = [c for c in num_cols if df[c].dropna().isin([0, 1]).all()]
 static_skip = set(c for c in STATIC_REALS if c in df.columns)
-interval_cols = [c for c in num_cols if c not in binary_cols and c not in static_skip]
-
-n_clipped = 0
-for col in interval_cols:
-    q1 = df[col].quantile(0.25)
-    q3 = df[col].quantile(0.75)
-    iqr = q3 - q1
-    lo = q1 - 1.5 * iqr
-    hi = q3 + 1.5 * iqr
-    n_out = ((df[col] < lo) | (df[col] > hi)).sum()
-    if n_out > 0:
-        df[col] = df[col].clip(lower=lo, upper=hi)
-        n_clipped += n_out
-
-print(f"  Интервальных колонок: {len(interval_cols)}")
-print(f"  Пропущено статических (metadata): {len(static_skip)} колонок — паспортные данные не меняются")
-print(f"  Значений скорректировано (winsorized): {n_clipped}")
-print(f"  Строки не удаляются — временной ряд должен быть непрерывным")
 
 # ============================================================
 # Шаг 3. Label Encoding категориальных переменных
 # ============================================================
 print("\n[3/8] Label Encoding категориальных переменных...")
 
-cat_cols = df.select_dtypes(include=["object"]).columns.tolist()
-# station_name и timestamp оставляем как есть
-encode_cols = [c for c in cat_cols if c not in ["station_name", "timestamp"]]
+cat_cols = df.select_dtypes(include=["str"]).columns.tolist()
+# timestamp оставляем как есть (station_name уже удалена в шаге 2)
+encode_cols = [c for c in cat_cols if c not in ["timestamp"]]
 
 label_encoders = {}
+enc_dict = {}
 for col in encode_cols:
     le = LabelEncoder()
-    df[col + "_enc"] = le.fit_transform(df[col].astype(str))
+    enc_dict[col + "_enc"] = le.fit_transform(df[col].astype(str))
     label_encoders[col] = le
+
+# Добавляем все _enc столбцы за один concat — избегаем фрагментации DataFrame
+df = pd.concat([df, pd.DataFrame(enc_dict, index=df.index)], axis=1)
 
 print(f"  Закодировано: {len(encode_cols)} колонок -> добавлены _enc суффиксы")
 for col in encode_cols:
@@ -136,26 +140,41 @@ print(f"  {'Колонка':30s} {'skew до':>10} {'skew после':>12}")
 print(f"  {'-'*30} {'-'*10} {'-'*12}")
 
 actual_log_cols = [c for c in LOG_COLS if c in df.columns]
+
+# Считаем skew ДО преобразования
+skews_before = {col: df[col].skew() for col in actual_log_cols}
+
+# Добавляем все _orig столбцы за один concat — избегаем фрагментации DataFrame
+orig_dict = {col + "_orig": df[col].copy() for col in actual_log_cols}
+df = pd.concat([df, pd.DataFrame(orig_dict, index=df.index)], axis=1)
+
+# Применяем log1p сразу ко всем целевым
+df[actual_log_cols] = np.log1p(df[actual_log_cols])
+
 for col in actual_log_cols:
-    skew_before = df[col].skew()
-    df[col + "_orig"] = df[col].copy()
-    df[col] = np.log1p(df[col])
     skew_after = df[col].skew()
-    print(f"  {col:30s} {skew_before:>10.3f} {skew_after:>12.3f}")
+    print(f"  {col:30s} {skews_before[col]:>10.3f} {skew_after:>12.3f}")
 
 print(f"\n  Оригиналы сохранены с суффиксом _orig ({len(actual_log_cols)} колонок)")
+
+# Дефрагментация после всех пошаговых добавлений столбцов (шаги 3–6)
+df = df.copy()
 
 # ============================================================
 # Шаг 7. Z-score нормализация per-station
 # ============================================================
-print("\n[7/8] Z-score нормализация (per-station)...")
-print("  Формула: (x - mean_station) / std_station")
+print("\n[7/8] Z-score нормализация (per-station, статистика только по train)...")
+print("  Формула: (x - mean_train) / std_train")
+print("  ВАЖНО: mean и std вычисляются только по обучающей выборке (Jan–Oct 2023).")
+print("  Применяются к val и test теми же числами -- нет data leakage из будущего.")
 print("  Исключены: статические (metadata), бинарные, _enc, _orig, log1p-колонки (цели)")
+print("  Также исключены: price_* — константны внутри станции (std=0), передаются в сыром масштабе")
 
 skip_cols = set(
-    ["timestamp", "station_id", "time_idx", "station_name"]
+    ["timestamp", "station_id", "time_idx"]
     + list(static_skip)
     + binary_cols
+    + NO_ZSCORE_COLS   # price_* константны per-station в 2023 г., std=0 -> NaN
     + [c for c in df.columns if c.endswith("_enc")]
     + [c for c in df.columns if c.endswith("_orig")]
     + actual_log_cols
@@ -165,15 +184,20 @@ norm_cols = [
 ]
 df[norm_cols] = df[norm_cols].astype(float)
 
+# Маска обучающей выборки — только по ней вычисляем статистику
+train_norm_mask = df["timestamp"] <= TRAIN_END
+
 scalers = {}
 for sid in df["station_id"].unique():
     scalers[sid] = {}
-    mask = df["station_id"] == sid
+    mask_sid = df["station_id"] == sid
+    train_mask_sid = mask_sid & train_norm_mask  # только train для fit
     for col in norm_cols:
-        mean = df.loc[mask, col].mean()
-        std = df.loc[mask, col].std()
+        mean = df.loc[train_mask_sid, col].mean()
+        std = df.loc[train_mask_sid, col].std()
+        # Применяем к ВСЕМ данным (train + val + test) используя train-статистику
         if std > 0:
-            df.loc[mask, col] = (df.loc[mask, col] - mean) / std
+            df.loc[mask_sid, col] = (df.loc[mask_sid, col] - mean) / std
         scalers[sid][col] = (mean, std)
 
 print(f"  Нормализовано: {len(norm_cols)} колонок x {df['station_id'].nunique()} станций")
@@ -209,5 +233,5 @@ print(f"  tft/scalers.pkl         : {df['station_id'].nunique()} станций,
 print("\n" + "=" * 60)
 print("Готово.")
 print("  Сохранено : data/prepared_data.csv, data/train.csv, data/val.csv, data/test.csv, tft/scalers.pkl")
-print("  Следующий шаг: python eda/tft_report.py")
+print("  Следующий шаг: python tft/prepare_dataset.py")
 print("=" * 60)

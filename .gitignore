@@ -22,7 +22,6 @@ lightning_logs/
 SourceDataForWork/Generation/
 
 # Вспомогательные файлы задания (не нужны в репо)
-SourceDataForWork/Задание.docx
 SourceDataForWork/Небольшое примечание.txt
 
 # Temp-файлы Microsoft Office (~$...)
