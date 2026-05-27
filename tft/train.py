@@ -1,8 +1,6 @@
 """
 Обучение TFT модели.
 Запускать из корня проекта: python tft/train.py
-Входные данные : tft/training_dataset.pkl, tft/dataset_config.pkl (из prepare_dataset.py)
-Выходные данные: tft/model.ckpt, tft/checkpoints/, tft/logs/
 """
 
 import glob
@@ -101,10 +99,11 @@ with open("tft/dataset_config.pkl", "rb") as f:
     config = pickle.load(f)
 
 print(f"  Целевые переменные  : {config['target_cols']}")
-enc_d = config['encoder_length']
-pred_d = config['prediction_length']
-print(f"  Encoder length      : {enc_d} дн. (ретроспектива 1 месяц)")
-print(f"  Prediction length   : {pred_d} дн. (горизонт прогноза 1 неделя)")
+enc_h = config['encoder_length']
+pred_h = config['prediction_length']
+print(f"  Encoder length      : {enc_h} ч ({enc_h // 24} сут.)")
+print(f"  Prediction length   : {pred_h} ч ({pred_h // 24} сут.)")
+print(f"  Горизонт прогноза   : {pred_h}ш = 1 сутки (24 часовых шага)")
 print(f"  Станций             : {config['n_stations']}")
 
 # ============================================================
@@ -113,24 +112,18 @@ print(f"  Станций             : {config['n_stations']}")
 import pandas as pd
 from pytorch_forecasting import TimeSeriesDataSet
 
-df = pd.read_csv("data/prepared_data.csv", parse_dates=["date"])
+df = pd.read_csv("data/prepared_data.csv", parse_dates=["timestamp"])
 df["station_id"] = df["station_id"].astype(str)
 
 for col in config["static_cats"] + config["known_cats"]:
     if col in df.columns:
         df[col] = df[col].astype(str)
 
-TRAIN_END = pd.Timestamp(config["train_end"])
-VAL_END   = pd.Timestamp(config["val_end"])
+TRAIN_END = pd.Timestamp(config["train_end"] + " 23:00:00")
+VAL_END = pd.Timestamp(config["val_end"] + " 23:00:00")
 
-# val_df начинается с TRAIN_END - ENCODER_LENGTH + 1 = Oct 2.
-# Это гарантирует, что все декодерные окна попадают в ноябрь (out-of-sample),
-# а не в Jan–Oct (train-период), что давало бы смещённый val_loss.
-_enc = config["encoder_length"]
-VAL_START = TRAIN_END - pd.Timedelta(days=_enc - 1)
-
-train_df = df[df["date"] <= TRAIN_END].copy()
-val_df   = df[(df["date"] >= VAL_START) & (df["date"] <= VAL_END)].copy()
+train_df = df[df["timestamp"] <= TRAIN_END].copy()
+val_df = df[df["timestamp"] <= VAL_END].copy()
 
 validation = TimeSeriesDataSet.from_dataset(training, val_df, stop_randomization=True)
 
@@ -158,9 +151,8 @@ tft = TemporalFusionTransformer.from_dataset(
     hidden_continuous_size=HIDDEN_CONTINUOUS,
     loss=QuantileLoss(),
     # log_interval: каждые N шагов пишет prediction-графики в TensorBoard.
-    # При encoder=30 дн. / decoder=7 дн., 5 станций, batch=32 → ~48–60 батчей/эпоха.
-    # log_interval=10 → ~5 точек на эпоху (достаточная детализация).
-    log_interval=10,
+    # При encoder=168ч / decoder=24ч батчи лёгкие → 20 шагов даёт достаточную частоту.
+    log_interval=20,
     reduce_on_plateau_patience=5,
 )
 
@@ -186,22 +178,8 @@ checkpoint_cb = ModelCheckpoint(
 # Заменяет второй ModelCheckpoint — Lightning 2.x не допускает два экземпляра
 # ModelCheckpoint с одинаковым state_key (RuntimeError).
 class BestModelSync(pl.Callback):
-    """Создаёт/обновляет tft/model.ckpt двумя путями:
-    1. on_train_epoch_end  — страховка: сохраняет текущее состояние сразу после
-       обучающей части эпохи, не дожидаясь валидации. Гарантирует, что файл
-       существует уже после первой эпохи, даже если обучение будет прервано.
-    2. on_validation_epoch_end — основной триггер: перезаписывает файл лучшим
-       чекпоинтом по val_loss (через ModelCheckpoint), когда val_loss улучшился.
-    """
-    def on_train_epoch_end(self, trainer, pl_module):
-        # Страховочное сохранение после каждой train-эпохи.
-        # trainer.save_checkpoint сохраняет полный Lightning-чекпоинт
-        # (веса + оптимайзер + lr_scheduler), совместимый с load_from_checkpoint.
-        # on_validation_epoch_end позже перезапишет его лучшим по val_loss.
-        trainer.save_checkpoint("tft/model.ckpt")
-
+    """Перезаписывает tft/model.ckpt при каждом новом лучшем val_loss."""
     def on_validation_epoch_end(self, trainer, pl_module):
-        # Основной триггер: заменяем страховочный файл лучшим чекпоинтом.
         src = checkpoint_cb.best_model_path
         if src and os.path.exists(src):
             shutil.copy(src, "tft/model.ckpt")
@@ -247,50 +225,22 @@ trainer = pl.Trainer(
     # BestModelSync стоит после checkpoint_cb — чтобы best_model_path уже был обновлён.
     callbacks=[checkpoint_cb, early_stop_cb, lr_monitor, BestModelSync()],
     enable_model_summary=True,
-    # При encoder=30 дн. / decoder=7 дн., 5 станций, batch=32 → ~48–60 батчей/эпоха.
-    # log_every_n_steps=10 → ~5–6 точек на эпоху в TensorBoard (достаточно).
+    # При encoder=168ч / decoder=24ч (~1100 батчей/эпоха на CPU):
+    # log_every_n_steps=50 → ~22 точки на эпоху в TensorBoard (достаточно).
     # num_sanity_val_steps=1 → 1 батч для проверки val pipeline вместо 2.
     # precision="32-true" → явный float32, убирает предупреждение Lightning.
-    log_every_n_steps=10,
+    log_every_n_steps=50,
     num_sanity_val_steps=1,
     precision="32-true",
     logger=tb_logger,
 )
 
-# Lightning при создании Trainer-а вызывает warnings.simplefilter("default"),
-# сбрасывая фильтры, установленные выше. Поэтому переустанавливаем ПОСЛЕ Trainer.
-# Также глушим канал logging.captureWarnings — Lightning роутит предупреждения туда.
-import logging as _logging
-warnings.filterwarnings("ignore")
-_logging.getLogger("py.warnings").setLevel(_logging.CRITICAL)
-_logging.getLogger("py.warnings").propagate = False
-
-try:
-    trainer.fit(
-        tft,
-        train_dataloaders=train_loader,
-        val_dataloaders=val_loader,
-        ckpt_path=resume_ckpt,
-    )
-except (RuntimeError, Exception) as _e:
-    # Если чекпоинт несовместим с текущей архитектурой (size mismatch после
-    # изменения переменных/гиперпараметров) — удаляем его и стартуем с нуля.
-    _emsg = str(_e)
-    if resume_ckpt and ("size mismatch" in _emsg or "unexpected key" in _emsg or "missing key" in _emsg):
-        print(f"\n[WARNING] Чекпоинт несовместим с архитектурой: {_emsg[:200]}")
-        print("[WARNING] Удаляем несовместимые чекпоинты и обучаем с нуля...")
-        for _f in glob.glob("tft/checkpoints/*.ckpt"):
-            os.remove(_f)
-        if os.path.exists("tft/model.ckpt"):
-            os.remove("tft/model.ckpt")
-        trainer.fit(
-            tft,
-            train_dataloaders=train_loader,
-            val_dataloaders=val_loader,
-            ckpt_path=None,  # с нуля
-        )
-    else:
-        raise
+trainer.fit(
+    tft,
+    train_dataloaders=train_loader,
+    val_dataloaders=val_loader,
+    ckpt_path=resume_ckpt,
+)
 
 # ============================================================
 # Итог

@@ -1,0 +1,11 @@
+{
+  "batch_size": 32,
+  "max_epochs": 50,
+  "hidden_size": 64,
+  "attention_head_size": 2,
+  "hidden_continuous_size": 32,
+  "learning_rate": 0.0003,
+  "dropout": 0.2,
+  "gradient_clip": 1.0,
+  "patience": 12
+}

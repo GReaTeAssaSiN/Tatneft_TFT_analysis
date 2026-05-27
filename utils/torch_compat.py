@@ -7,29 +7,13 @@ pytorch_forecasting и numpy при загрузке чекпоинтов чер
 Безопасно: чекпоинты создаются самим проектом.
 """
 
-import logging as _logging
-import warnings
 import torch as _torch
 
 _orig = _torch.load
 
 
-def _patched_load(f, *args, **kwargs):
-    # Принудительно устанавливаем weights_only=False независимо от того,
-    # что передал вызывающий код (в том числе убираем weights_only=True по умолчанию).
-    kwargs["weights_only"] = False
-    return _orig(f, *args, **kwargs)
+def _patched_load(f, map_location=None, pickle_module=None, weights_only=True, **kw):
+    return _orig(f, map_location=map_location, weights_only=False, **kw)
 
 
 _torch.load = _patched_load
-
-# Подавляем предупреждение PyTorch 2.6 о weights_only.
-# 1. Python warnings — для кода, вызывающего torch.load через torch.load(...)
-warnings.filterwarnings("ignore", message=".*weights_only.*", category=FutureWarning)
-warnings.filterwarnings("ignore", message=".*weights_only.*", category=UserWarning)
-warnings.filterwarnings("ignore", message=".*weights_only.*")   # любая категория
-
-# 2. logging.captureWarnings — Lightning роутит warnings через logging.
-#    Глушим канал py.warnings, чтобы они не всплывали через прогресс-бар.
-_logging.getLogger("py.warnings").setLevel(_logging.CRITICAL)
-_logging.getLogger("py.warnings").propagate = False

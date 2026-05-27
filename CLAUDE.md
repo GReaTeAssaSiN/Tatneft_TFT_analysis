@@ -3,9 +3,8 @@
 ## Задача
 
 Мультицелевая TFT-модель (Temporal Fusion Transformer, Lim et al. 2020) для
-прогнозирования ежедневных продаж топлива и товаров магазина сети АЗС Татнефть.
-Горизонт: 7 дней (1 неделя). Ретроспектива: 30 дней (1 месяц). 12 целевых переменных совместно.
-Рекурсивное прогнозирование: на 1 день (первый шаг 7-дневного окна) и на 1 месяц (4–5 итераций).
+прогнозирования почасовых продаж топлива и товаров магазина сети АЗС Татнефть.
+Горизонт: 24 часа (1 сутки). Ретроспектива: 168 часов (7 суток). 12 целевых переменных совместно.
 
 ---
 
@@ -13,103 +12,91 @@
 
 | Файл | Описание |
 |---|---|
-| `gas_stations_static.csv` | Паспорт 5 АЗС: тип дороги, направление, услуги, кол-во колонок, расположение |
-| `gas_stations_temporal_daily_2025.csv` | Ежедневные данные 2025 г.: погода, трафик, продажи, цены, акции, метрики клиентов (1825 × 88) |
-| `2.Данные_по_временным_рядам.xlsx` | Исходный Excel с временными рядами |
-| `5.Данные_по_временным_рядам_пилотных_АЗС-трафик по типам транспорта.xlsx` | Трафик по типам ТС |
-| `_Статистические_данные_пилотных_АЗС_2.xlsx` | Паспортные данные АЗС |
+| `5stations_metadata.csv` | Паспорт 5 АЗС: тип дороги, услуги, кол-во колонок, базовые цены (5 × 32) |
+| `5stations_data.csv` | Почасовые данные 2023 г.: погода, трафик, продажи, акции, реклама, цены конкурентов (43800 × 72) |
+| `detailed_data.csv` | Те же данные для 25 АЗС (219000 строк) |
+| `stations_metadata.csv` | Паспорт 25 АЗС (25 × 32) |
+| `TFT_анализ.pdf` | Оригинальная статья TFT (Lim et al., 2020) |
 
-Связь файлов: `gas_stations_static LEFT JOIN gas_stations_temporal_daily_2025 ON station_id`.
-Результат: 1825 × 115, хранится в `data/merged_data.csv`.
+Связь файлов: `metadata LEFT JOIN data ON station_id`.
+Результат: 43800 × 89, хранится в `data/merged_data.csv`.
 
 ---
 
 ## Целевые переменные (TARGET_COLS — 12 штук)
 
 ```python
-# 5 видов топлива
-"sales_AI92", "sales_AI95", "sales_DT", "sales_DT_bio", "sales_AI100_bio"
+# 7 видов топлива
+"sales_AI92", "sales_AI95", "sales_AI98",
+"sales_DT_EURO", "sales_DT_TANEKO", "sales_DT_SUMMER", "sales_DT_WINTER"
 
-# 7 категорий магазина
-"shop_напитки_безалкогольные", "shop_кондитерка_снеки", "shop_мороженое",
-"shop_автотовары", "shop_кафе_вся_еда", "shop_кофе_все_горячие_напитки", "shop_табак"
+# 5 категорий магазина
+"shop_напитки", "shop_закуски", "shop_автотовары", "shop_кофе", "shop_табак"
 ```
 
-Все 12 целевых переменных прогнозируются совместно (мультитаргет).
-TFT использует их как авторегрессивные входы энкодера через `target=TARGET_COLS`.
+Категории магазина одновременно являются целевыми и наблюдаемыми прошлыми
+(TIME_VARYING_UNKNOWN_REALS) — TFT использует их как авторегрессивные входы энкодера.
 
 ---
 
 ## Таксономия переменных TFT (единственный источник истины — utils/data_utils.py)
 
-### STATIC_CATS (5 переменных)
-Статические категориальные — характеристики АЗС, не меняются во времени.
-⚠️ `road_level`, `settlement_size`, `distance_to_city_km` — коды категорий, не числа:
+### STATIC_CATS (3 переменных)
+Статические категориальные — характеристики АЗС, не меняются во времени:
 ```
-road_type_enc, road_level_enc, direction_enc, settlement_size_enc, distance_to_city_km_enc
+road_type_enc, direction_enc, settlement_size_enc
 ```
 
-### STATIC_REALS (21 переменная)
+### STATIC_REALS (26 переменных)
 Статические вещественные — паспортные данные АЗС. Не нормализуются:
 ```
-shop_area_m2,
-num_pumps_AI92/AI92_bio/AI95/AI95_bio/AI100_bio/DT/DT_bio/SUG/KPG/SPG,
+distance_to_city_km, shop_area_m2,
+num_pumps_AI92/95/98/DT_EURO/DT_TANEKO/DT_SUMMER/DT_WINTER,
 has_car_wash, has_tire_service, has_cafe, has_hotel, has_shop,
-has_shop_молельная_комната, has_shop_прачечная,
-has_shop_электрозарядная_станция, has_shop_подкачка_шин,
-competitors_wink
+competitors_within_5km, customer_loyalty_score, staff_quality_score,
+corporate_customer_ratio, staff_engagement_score,
+base_price_AI92/95/98/DT_EURO/DT_TANEKO/DT_SUMMER/DT_WINTER
 ```
 `total_pumps` исключён (= sum(num_pumps_*), дублирует детальные колонки).
 
-### TIME_VARYING_KNOWN_CATS (2 переменных)
+### TIME_VARYING_KNOWN_CATS (4 переменных)
 Известные будущие категориальные — задаются заранее или в what-if:
 ```
-season_enc, holiday_name_enc
+season_enc, weather_condition_enc, ad_channel_enc, holiday_name_enc
 ```
-`weather_condition` — бинарный 0/1, перенесён в KNOWN_REALS.
+`day_name_enc` удалён (дублирует day_of_week, уже есть в KNOWN_REALS с sin/cos).
+`weather_condition_enc` перенесён из UNKNOWN → что-если тип погоды.
 
-### TIME_VARYING_KNOWN_REALS (53 переменных)
+### TIME_VARYING_KNOWN_REALS (44 переменных)
 Известные будущие вещественные — декодер TFT принимает эти переменные для горизонта прогноза.
-Всё, что задаётся в what-if сценарии, должно быть здесь.
-Данные суточные — `hour` отсутствует:
+Всё, что задаётся в what-if сценарии, должно быть здесь:
 ```
-# Циклические временные признаки (raw + sin/cos; 9 колонок)
+# Циклические временные признаки (raw + sin/cos)
+hour, hour_sin, hour_cos,
 day_of_week, day_of_week_sin, day_of_week_cos,
 week_of_year, week_of_year_sin, week_of_year_cos,
 month, month_sin, month_cos,
 # Бинарные флаги
-is_weekend, is_holiday,
-# Тип погоды (бинарный 0/1: 0 = ясно/облачно, 1 = осадки/плохая видимость)
-weather_condition,
-# Акции
-promotion_fuel_active, promotion_shop_active, promotion_cafe_active,
-# Текущие цены топлива (меняются ежедневно в 2025 г.; Z-score применяется)
-price_AI92, price_AI95, price_DT, price_DT_bio, price_AI100_bio,
-# Погода (по метеопрогнозу; what-if: температура, осадки)
-temperature, precipitation_mm,
-# Трафик-счётчики ТС, попутное направление, полосы 1 и 2 (12 колонок)
-traffic_Passengers_cars_1/2_poputn, traffic_Truck_short_1/2_poputn,
-traffic_Truck_1/2_poputn, traffic_Truck_long_1/2_poputn,
-traffic_Transporter_1/2_poputn, traffic_Undefined_1/2_poputn,
-# Трафик-счётчики, встречное направление, полосы 1 и 2 (12 колонок)
-traffic_*_1/2_wstrechn (те же 6 типов ТС),
+is_weekend, is_holiday, is_rush_hour, is_night,
+is_shop_open,                 # производный: 1 = 05:00–21:00, 0 = 22:00–04:00
+# Акции и реклама
+promotion_fuel_active, promotion_shop_active, promotion_cafe_active, ad_active,
+# Текущие цены топлива (постоянны per-station в 2023 г.; передаются без Z-score)
+price_AI92, price_AI95, price_AI98,
+price_DT_EURO, price_DT_TANEKO, price_DT_SUMMER, price_DT_WINTER,
+# Погода (по метеопрогнозу; what-if: снег/ясно/дождь/температура)
+temperature, precipitation_mm, visibility_km, wind_speed_ms,
+is_snow, is_rain, is_fog,
+# Трафик по типам ТС (прогнозируется службами дорожного движения)
+traffic_Passengers_cars, traffic_Truck_short, traffic_Truck,
+traffic_Truck_long, traffic_Transporter, traffic_Undefined,
 # Цены конкурентов (мониторинг; what-if: снижение/рост)
-competitor_price_AI92, competitor_price_AI95, competitor_price_DT,
-competitor_price_AI92_brend, competitor_price_AI95_brend,
-competitor_price_DT_brend, competitor_price_AI100
+competitor_price_AI92, competitor_price_AI95, competitor_price_DT
 ```
+`quarter` удалён (выводится из month). `total_traffic` исключён (несогласован с индивидуальными).
 
-### TIME_VARYING_UNKNOWN_REALS (18 переменных)
-Наблюдаемые прошлые — известны за прошлые периоды, недоступны для горизонта прогноза:
-```
-# Клиентские метрики (2)
-corporate_customer_ratio, customer_loyalty_score,
-# Производные метрики трафика (16): скорость, плотность, интенсивность
-traffic_scorost_1/2_poputn, traffic_scorost_1/2_wstrechn,
-traffic_plotnost_1/2_poputn, traffic_plotnost_1/2_wstrechn,
-traffic_intensiv_priv_1/2_poputn, traffic_intensiv_priv_1/2_wstrechn,
-traffic_intensiv_fiz_1/2_poputn, traffic_intensiv_fiz_1/2_wstrechn
-```
+### TIME_VARYING_UNKNOWN_REALS (0 переменных)
+Намеренно пусто. Все ковариаты перенесены в KNOWN для поддержки what-if анализа.
 Целевые переменные (авторегрессивные входы энкодера) TFT добавляет автоматически
 через параметр `target=TARGET_COLS` в TimeSeriesDataSet.
 
@@ -117,54 +104,43 @@ traffic_intensiv_fiz_1/2_poputn, traffic_intensiv_fiz_1/2_wstrechn
 
 ## Препроцессинг (eda/eda_preprocessing.py)
 
-Порядок шагов строго фиксирован. Входные данные: `data/merged_data.csv` (1825 × 115).
+Порядок шагов строго фиксирован:
 
-1. **Пропуски**: `holiday_name → "нет_праздника"` (единственное поле с NaN).
-2. **Исключение избыточных колонок**: 8 столбцов удаляются из датафрейма
-   (`EXCLUDED_COLS` из `utils/data_utils.py`): station_name, total_pumps, total_fuel_sales,
-   quarter, traffic_uroven_jbslugi_1/2_poputn, traffic_uroven_jbslugi_1/2_wstrechn.
-   Winsorization не применяется — не описана в статье TFT; TorchNormalizer(robust)
-   обрабатывает выбросы целей. После исключения: 115 − 8 = **107 колонок**.
+1. **Пропуски**: `holiday_name → "нет_праздника"`, `ad_channel → "нет_рекламы"`
+2. **Исключение избыточных колонок**: 7 столбцов удаляются из датафрейма
+   (`EXCLUDED_COLS` из `utils/data_utils.py`). Winsorization не применяется —
+   не описана в статье TFT; TorchNormalizer(robust) обрабатывает выбросы целей.
+   После исключения добавляется производный признак `is_shop_open` (1: 05:00–21:00, 0: 22:00–04:00) —
+   стабилизирует нулевые продажи shop_* ночью. Добавляется до вычисления binary_cols,
+   чтобы автоматически исключиться из Z-score нормализации.
 3. **Label Encoding** категориальных → суффикс `_enc`.
-   7 колонок: 4 строковых (road_type, direction, season, holiday_name) +
-   3 числовых-кода-категорий (road_level, settlement_size, distance_to_city_km).
-   Оригинальные колонки сохраняются рядом с _enc. После: **114 колонок**.
-4. **Циклическое кодирование**: `day_of_week/week_of_year/month → _sin/_cos`.
-   Данные суточные — `hour` отсутствует. Добавляются 6 колонок. После: **120 колонок**.
-5. **time_idx**: монотонный порядковый номер дня per-station через `cumcount()`.
-   Значения 0–364 для каждой из 5 станций. После: **121 колонка**.
+   TFT строит эмбеддинги сам через NaNLabelEncoder.
+4. **Циклическое кодирование**: `hour/day_of_week/month/week_of_year → _sin/_cos`.
+   Решает разрыв 23:00 → 00:00: на числовой оси далеко, на окружности рядом.
+5. **time_idx**: монотонный порядковый номер часа per-station через cumcount.
 6. **log1p**: только 12 целевых переменных (LOG_COLS = TARGET_COLS).
-   Оригинал сохраняется в `_orig`. После: **133 колонки**.
+   Оригинал сохраняется в `_orig`. `shop_total_revenue` исключена из модели.
 7. **Z-score** нормализация per-station для числовых переменных.
-   Статистика (mean, std) вычисляется ТОЛЬКО по train (Jan–Oct 2025).
-   Исключены: STATIC_REALS, бинарные, `_enc`, `_orig`, LOG_COLS (цели).
-   `NO_ZSCORE_COLS = []` — в 2025 г. цены меняются ежедневно (std > 0).
+   Исключены: STATIC_REALS, бинарные, `_enc`, `_orig`, LOG_COLS (цели),
+   а также `NO_ZSCORE_COLS` (`price_*` — константны per-station в 2023 г., std=0).
    LOG_COLS исключены — TorchNormalizer в TFT нормализует цели отдельно.
-   **Скейлеры**: `tft/scalers.pkl` — `{station_id: {col: (mean, std)}}` + `log1p_cols`.
+8. **Скейлеры**: `tft/scalers.pkl` — `{station_id: {col: (mean, std)}}` + `log1p_cols`.
+   Используются в `predict.py` для обратного преобразования.
 
-Результат: `data/prepared_data.csv` **(1825 × 133)**.
-
-Счёт колонок: 115 − 8 + 7(_enc) + 6(sin/cos) + 1(time_idx) + 12(_orig) = **133**.
+Результат: `data/prepared_data.csv` (43800 × 111).
 
 ---
 
 ## Сплиты данных
 
-| Файл | Период | Строк | Целевой период |
-|---|---|---|---|
-| `data/train.csv` | Jan–Oct 2025 | 1520 | янв–окт (все окна) |
-| `data/val.csv` | Oct 2 – Nov 30 2025 | 300 | ноябрь (30-дн. контекст из окт.) |
-| `data/test.csv` | Dec 2025 | 155 | декабрь |
+| Сплит | Период | Доля |
+|---|---|---|
+| train | Jan–Oct 2023 | ~83.6% |
+| val | Nov 2023 | ~8.2% |
+| test | Dec 2023 | ~8.2% |
 
-**Два понятия val/test:**
-- `data/val.csv` / `data/test.csv` — CSV для EDA (Oct 2 – Nov 30 / Dec 2025).
-- `val_df` в `prepare_dataset.py` и `train.py` — `df[(date >= Oct 2) & (date <= Nov 30)]`.
-  Начало Oct 2 = TRAIN_END − ENCODER_LENGTH + 1: первое окно энкодер Oct 2–31 → декодер Nov 1–7.
-  Все окна декодером в ноябре → val_loss = чистая out-of-sample метрика.
-- `test_df` в `prepare_dataset.py` — `df[date >= Nov 1]`, только для проверки батча.
-  В `predict.py` test создаётся заново: `df[date >= Dec 1 − 30 дн]` = от Nov 1.
-
-`NaNLabelEncoder` обучается на полном df (все 1825 строк) → нет KeyError для
+`val_df` включает данные train для encoder context (необходимо для первых окон ноября).
+`NaNLabelEncoder` предобучается на полном df (все 43800 строк) → нет KeyError для
 праздников, которые встречаются только в ноябре–декабре.
 
 ---
@@ -180,8 +156,8 @@ traffic_intensiv_fiz_1/2_poputn, traffic_intensiv_fiz_1/2_wstrechn
 | `EPOCHS` | 50 | 80 |
 
 Общие параметры:
-- `ENCODER_LENGTH = 30` дн. (1 месяц), `PREDICTION_LENGTH = 7` дн. (1 неделя).
-  Рекурсивный прогноз: 1 день (шаг 0), 7 дней (прямой), 1 месяц (4–5 итераций).
+- `ENCODER_LENGTH = 168` ч (7 суток), `PREDICTION_LENGTH = 24` ч (1 сутки).
+  Горизонт оперативного прогноза: следующие сутки (24 шага).
 - `learning_rate = 3e-4`, `dropout = 0.15`, `gradient_clip = 1.0`
 - `EarlyStopping(patience=12, monitor="val_loss")`
 - `ReduceLROnPlateau(patience=5)`
@@ -202,22 +178,24 @@ traffic_intensiv_fiz_1/2_poputn, traffic_intensiv_fiz_1/2_wstrechn
 
 ```
 FinalWorkDashboard/
-├── SourceDataForWork/                      — исходные файлы задания, не изменять
-│   ├── gas_stations_static.csv             — паспорт 5 АЗС
-│   ├── gas_stations_temporal_daily_2025.csv — ежедневные данные 2025 г. (1825 × 88)
-│   ├── 2.Данные_по_временным_рядам.xlsx    — временные ряды (исходный Excel)
-│   ├── 5.Данные_по_временным_рядам_пилотных_АЗС-трафик по типам транспорта.xlsx
-│   └── _Статистические_данные_пилотных_АЗС_2.xlsx — паспортные данные АЗС
+├── SourceDataForWork/           — исходные файлы задания, не изменять
+│   ├── 5stations_metadata.csv   — паспорт 5 АЗС (5 × 32)
+│   ├── 5stations_data.csv       — почасовые данные 2023 г. (43800 × 72)
+│   ├── detailed_data.csv        — те же данные для 25 АЗС (219000 строк)
+│   ├── stations_metadata.csv    — паспорт 25 АЗС
+│   ├── TFT_анализ.pdf           — статья Lim et al. 2020
+│   ├── Задание.docx             — постановка задачи
+│   └── описание данных.docx     — описание переменных датасета
 │
 ├── data/                        — генерируются скриптами, отслеживаются git
-│   ├── merged_data.csv          — JOIN metadata + data (1825 × 115)
-│   ├── prepared_data.csv        — после препроцессинга (1825 × 133)
-│   ├── train.csv                — train-сплит Jan–Oct 2025 (1520 строк, ~83%)
-│   ├── val.csv                  — val-сплит Nov 2025 с 30-дневным контекстом (300 строк)
-│   ├── test.csv                 — test-сплит Dec 2025 (155 строк)
-│   ├── predictions.csv          — скользящие 7-дн. прогнозы TFT за декабрь 2025
+│   ├── merged_data.csv          — JOIN metadata + data (43800 × 89)
+│   ├── prepared_data.csv        — после препроцессинга (43800 × 111)
+│   ├── train.csv                — train-сплит Jan–Oct 2023 (~83.6%)
+│   ├── val.csv                  — val-сплит Nov 2023 (~8.2%)
+│   ├── test.csv                 — test-сплит Dec 2023 (~8.2%)
+│   ├── predictions.csv          — скользящие 24ч прогнозы TFT за декабрь 2023
 │   │                              (pred + q10 + q90 по 12 целям × 5 АЗС; actual для сравнения)
-│   └── metrics.csv              — MAE / RMSE / MAPE по target × station (декабрь 2025)
+│   └── metrics.csv              — MAE / RMSE / MAPE по target × station (декабрь 2023)
 │
 ├── eda/
 │   └── eda_preprocessing.py    → prepared_data.csv + train/val/test.csv + tft/scalers.pkl
@@ -232,7 +210,7 @@ FinalWorkDashboard/
 │   ├── train_config.json        — гиперпараметры (создаётся train_dashboard, необязателен)
 │   ├── prepare_dataset.py      → tft/training_dataset.pkl + tft/dataset_config.pkl
 │   ├── train.py                 — обучение с BestModelSync + авто-резюм
-│   ├── predict.py               — инференс: скользящие 7-дн. окна на декабрь 2025 →
+│   ├── predict.py               — инференс: скользящие 24ч окна на декабрь →
 │   │                              data/predictions.csv + data/metrics.csv
 │   ├── checkpoints/             — чекпоинты Lightning (monitor=val_loss, save_top_k=1)
 │   └── logs/                    — TensorBoard (tensorboard --logdir tft/logs)
@@ -338,14 +316,14 @@ streamlit run dashboard/app_dashboard.py   # итоговый дашборд
 **tab3 — Прогноз TFT**
 - Фильтры Станция + Показатель вверху таба.
 - Подвкладки: Метрики & Точность · Прогноз vs Факт · Сценарий (What-if) · Интерпретация VSN.
-- Сценарий: горизонт 1/7/30 дней; `build_future_ctx` для дат за пределами декабря 2025.
+- Сценарий: горизонт 1/7/30 дней; `build_future_ctx` для дат за пределами декабря 2023.
   Легенда графика — под осью X (`y=-0.2`, `margin=dict(b=70)`).
   Кнопка «Рассчитать» выровнена через `st.markdown("&nbsp;")` спейсер.
 - Интерпретация VSN: собственные фильтры период + станция; VSN-веса, temporal attention.
 
 **tab4 — Рекомендации**
 - Фильтры Станция + Показатель (собственные).
-- EDA-рекомендации 2025: MAPE-надёжность, акционный рычаг, рекламный канал,
+- EDA-рекомендации 2023: MAPE-надёжность, акционный рычаг, рекламный канал,
   окно спроса, лучший день, трафик как сигнал.
 - Stale-check: блок результатов сценария скрывается при смене фильтра.
 
