@@ -1,6 +1,7 @@
 """
-Инференс TFT модели: предсказания на декабрь 2023.
+Инференс TFT модели: предсказания на декабрь 2025.
 Запускать из корня проекта: python tft/predict.py
+Входные данные : tft/model.ckpt (или tft/checkpoints/*.ckpt), tft/training_dataset.pkl
 Результат: data/predictions.csv, data/metrics.csv
 """
 
@@ -35,7 +36,7 @@ os.makedirs("data", exist_ok=True)
 # Загрузка модели
 # ============================================================
 print("=" * 60)
-print("ИНФЕРЕНС TFT — ДЕКАБРЬ 2023")
+print("ИНФЕРЕНС TFT — ДЕКАБРЬ 2025")
 print("=" * 60)
 
 if os.path.exists("tft/model.ckpt"):
@@ -61,23 +62,22 @@ with open("tft/dataset_config.pkl", "rb") as f:
     config = pickle.load(f)
 
 BATCH_SIZE = config["batch_size"]
-PRED_LEN = config["prediction_length"]   # 24
-ENC_LEN = config["encoder_length"]       # 168
+PRED_LEN = config["prediction_length"]   # 7 дн.
+ENC_LEN  = config["encoder_length"]      # 30 дн.
 
-df = pd.read_csv("data/prepared_data.csv", parse_dates=["timestamp"])
+df = pd.read_csv("data/prepared_data.csv", parse_dates=["date"])
 df["station_id"] = df["station_id"].astype(str)
 for col in config["static_cats"] + config["known_cats"]:
     if col in df.columns:
         df[col] = df[col].astype(str)
 
-# Контекст: ENC_LEN часов до декабря (для первых декабрьских окон) + весь декабрь
+# Контекст: ENC_LEN дней до декабря (ноябрь) нужен для первых декабрьских окон.
 # TEST_START, TEST_END импортированы из utils.data_utils
-CONTEXT_START = TEST_START - pd.Timedelta(hours=ENC_LEN)
+CONTEXT_START = TEST_START - pd.Timedelta(days=ENC_LEN)
 
-test_df = df[df["timestamp"] >= CONTEXT_START].copy()
-print(f"\nСкользящие окна: encoder={ENC_LEN}ч → decoder=24ч")
-print(f"  Первое окно  : {CONTEXT_START.date()} – {(TEST_START - pd.Timedelta(hours=1)).date()} → прогноз {TEST_START.date()}")
-print(f"  Последнее    : {(TEST_END - pd.Timedelta(hours=ENC_LEN)).date()} – {(TEST_END - pd.Timedelta(hours=1)).date()} → прогноз {TEST_END.date()}")
+test_df = df[df["date"] >= CONTEXT_START].copy()
+print(f"\nСкользящие окна: encoder={ENC_LEN}дн. → decoder={PRED_LEN}дн.")
+print(f"  Контекст от  : {CONTEXT_START.date()} (последние {ENC_LEN} дней до декабря)")
 print(f"  Декабрь      : {TEST_START.date()} — {TEST_END.date()}")
 
 testing = TimeSeriesDataSet.from_dataset(training, test_df, stop_randomization=True)
@@ -93,7 +93,7 @@ print("\nВычисление предсказаний...")
 
 # mode="quantiles" → TorchNormalizer^-1 применяется автоматически
 # Результат в log1p-пространстве (т.к. TorchNormalizer обучался на log1p значениях)
-# Далее применяем expm1 чтобы вернуться в исходные единицы (л/ч, руб/ч)
+# Далее применяем expm1 чтобы вернуться в исходные единицы (л/день, руб/день)
 result = model.predict(
     test_loader,
     mode="quantiles",
@@ -121,19 +121,20 @@ n_samples = len(idx_df)
 n_q = preds[0].shape[-1]    # 7 квантилей: QUANTILE_LEVELS из data_utils
 # Q_MED, Q_LO, Q_HI импортированы из utils.data_utils
 
-print(f"Сэмплов: {n_samples}, горизонт: {PRED_LEN} ч, квантилей: {n_q}")
+print(f"Сэмплов: {n_samples}, горизонт: {PRED_LEN} дн., квантилей: {n_q}")
 
 # Переводим тензоры в numpy (на GPU — явно перемещаем на CPU)
 pred_np = [p.detach().cpu().numpy() for p in preds]  # list[(n, pred_len, n_q)]
 
 # ============================================================
-# Маппинг time_idx → timestamp
+# Маппинг time_idx → date
 # ============================================================
-# time_idx в idx_df — это первый шаг декодера (первый предсказываемый час)
+# time_idx в idx_df — это первый шаг декодера (первый предсказываемый день).
+# Используем ПОЛНЫЙ df (не только test_df), чтобы находить даты по любому time_idx.
 ts_lookup = (
-    df[["station_id", "time_idx", "timestamp"]]
+    df[["station_id", "time_idx", "date"]]
     .drop_duplicates()
-    .set_index(["station_id", "time_idx"])["timestamp"]
+    .set_index(["station_id", "time_idx"])["date"]
 )
 
 idx_df = idx_df.copy()
@@ -146,22 +147,22 @@ print("Сборка таблицы предсказаний...")
 
 # Расширяем каждый сэмпл до PRED_LEN строк (по одной на каждый горизонт)
 idx_exp = idx_df.loc[idx_df.index.repeat(PRED_LEN)].reset_index(drop=True)
-horizon_arr = np.tile(np.arange(PRED_LEN), n_samples)   # 0, 1, ..., 23, 0, 1, ...
-sample_arr = np.repeat(np.arange(n_samples), PRED_LEN)  # 0,0,...,0, 1,1,...
+horizon_arr = np.tile(np.arange(PRED_LEN), n_samples)   # 0, 1, ..., 6, 0, 1, ...
+sample_arr  = np.repeat(np.arange(n_samples), PRED_LEN)  # 0,0,...,0, 1,1,...
 
-# Определяем timestamp первого шага для каждого сэмпла
-start_ts = idx_df.apply(
+# Определяем дату первого шага для каждого сэмпла через ts_lookup
+start_date = idx_df.apply(
     lambda r: ts_lookup.get((r["station_id"], int(r["time_idx"]))), axis=1
 ).values
-start_ts_exp = np.repeat(start_ts, PRED_LEN)
+start_date_exp = np.repeat(start_date, PRED_LEN)
 
 # time_idx из idx_df — это первый шаг декодера (проверено).
-# horizon_arr: 0=первый предсказываемый час, 23=последний.
-idx_exp["timestamp"] = pd.to_datetime(start_ts_exp) + pd.to_timedelta(horizon_arr, unit="h")
-idx_exp["horizon_h"] = horizon_arr + 1  # 1-индексированный горизонт
+# horizon_arr: 0 = первый прогнозируемый день, 6 = последний (7-й день).
+idx_exp["date"]      = pd.to_datetime(start_date_exp) + pd.to_timedelta(horizon_arr, unit="d")
+idx_exp["horizon_d"] = horizon_arr + 1  # 1-индексированный горизонт (1..7)
 
-# Фильтрация: только декабрь 2023 (окна с конца декабря вылезают в январь)
-mask = (idx_exp["timestamp"] >= TEST_START) & (idx_exp["timestamp"] <= TEST_END)
+# Фильтрация: только декабрь 2025 (окна с конца декабря могут вылезти в январь)
+mask = (idx_exp["date"] >= TEST_START) & (idx_exp["date"] <= TEST_END)
 idx_exp = idx_exp[mask].reset_index(drop=True)
 s_idx = sample_arr[mask.values]
 h_idx = horizon_arr[mask.values]
@@ -185,9 +186,9 @@ pred_cols = (
 )
 
 pred_df = (
-    idx_exp[["station_id", "timestamp", "horizon_h"] + pred_cols]
-    .sort_values(["station_id", "timestamp", "horizon_h"])
-    .groupby(["station_id", "timestamp"], as_index=False)
+    idx_exp[["station_id", "date", "horizon_d"] + pred_cols]
+    .sort_values(["station_id", "date", "horizon_d"])
+    .groupby(["station_id", "date"], as_index=False)
     .first()
 )
 
@@ -197,14 +198,14 @@ print(f"Уникальных предсказаний: {len(pred_df)}")
 # Фактические значения за декабрь
 # ============================================================
 # В prepared_data.csv целевые переменные уже в log1p (z-score к ним не применялся)
-actual_df = df[(df["timestamp"] >= TEST_START) & (df["timestamp"] <= TEST_END)][
-    ["station_id", "timestamp"] + TARGET_COLS
+actual_df = df[(df["date"] >= TEST_START) & (df["date"] <= TEST_END)][
+    ["station_id", "date"] + TARGET_COLS
 ].copy()
 
 actual_df[TARGET_COLS] = np.expm1(actual_df[TARGET_COLS].clip(lower=0))
 actual_df = actual_df.rename(columns={col: f"{col}_actual" for col in TARGET_COLS})
 
-pred_df = pred_df.merge(actual_df, on=["station_id", "timestamp"], how="left")
+pred_df = pred_df.merge(actual_df, on=["station_id", "date"], how="left")
 
 pred_df.to_csv("data/predictions.csv", index=False)
 print(f"Сохранено : data/predictions.csv ({pred_df.shape[0]} × {pred_df.shape[1]})")
@@ -214,7 +215,7 @@ print(f"Сохранено : data/predictions.csv ({pred_df.shape[0]} × {pred_d
 # ============================================================
 print("\n" + "=" * 60)
 print("МЕТРИКИ ПО СТАНЦИЯМ")
-print("  Топливо: л/ч  |  Магазин: руб/ч")
+print("  Топливо: л/день  |  Магазин: руб/день")
 print("=" * 60)
 
 rows_m = []
